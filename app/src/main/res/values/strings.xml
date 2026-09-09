@@ -1,0 +1,18 @@
+<resources>
+    <!-- application_name is provided per product flavor in app/build.gradle.kts. -->
+
+    <string name="tab_record">Record</string>
+    <string name="tab_tracks">Tracks</string>
+    <string name="tab_map">Map</string>
+    <string name="tab_share">Share</string>
+    <string name="tab_manual">Manual</string>
+
+    <string name="recording_channel_name">Track recording</string>
+    <string name="recording_channel_description">Shown while a track is being recorded.</string>
+    <string name="sharing_channel_name">Location sharing</string>
+    <string name="sharing_channel_description">Shown while this device is broadcasting its position.</string>
+    <string name="offline_map_channel_name">Offline map download</string>
+    <string name="offline_map_channel_description">Shown while the offline map file is downloading.</string>
+    <string name="follow_request_channel_name">Follow requests</string>
+    <string name="follow_request_channel_description">Alerts you when a web user asks to follow your location.</string>
+</resources>

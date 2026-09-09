@@ -1,0 +1,24 @@
+# Android / Gradle
+app/build
+build
+.gradle
+local.properties
+*.apk
+*.aab
+/app/release
+.idea
+*.iml
+.DS_Store
+captures/
+
+# Signing — never commit keys or their passwords
+*.jks
+*.keystore
+keystore.properties
+
+# Python sharing server
+server/.venv
+server/__pycache__
+*.pyc
+server/*.db
+server/*.db-journal

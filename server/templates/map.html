@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ label }} — map{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<style>
+  body { padding: 0; }
+  main { max-width: none; }
+  #bar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .6rem 1rem; border-bottom: 1px solid #8884; }
+  #map { height: calc(100vh - 3rem); width: 100%; }
+  #status { font-size: .85rem; opacity: .7; }
+</style>
+{% endblock %}
+{% block content %}
+<div id="bar">
+  <div><a href="/">← devices</a> &nbsp; <strong>{{ label }}</strong></div>
+  <div id="status">connecting…</div>
+</div>
+<div id="map"></div>
+<script>
+  const deviceId = {{ device_id | tojson }};
+  const map = L.map('map').setView([50.5, 4.5], 5);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  let marker = null;
+  let firstFix = true;
+  const status = document.getElementById('status');
+
+  async function poll() {
+    try {
+      const res = await fetch('/api/location/' + encodeURIComponent(deviceId), { cache: 'no-store' });
+      if (res.status === 403) { status.textContent = 'Access to this device was revoked.'; return; }
+      if (res.status === 404) { status.textContent = 'Device is not broadcasting right now.'; return; }
+      if (!res.ok) { status.textContent = 'Error ' + res.status; return; }
+      const p = await res.json();
+      const latlng = [p.lat, p.lon];
+      if (!marker) {
+        marker = L.marker(latlng).addTo(map);
+      } else {
+        marker.setLatLng(latlng);
+      }
+      if (firstFix) { map.setView(latlng, 16); firstFix = false; }
+      const age = Math.max(0, Math.round(Date.now() / 1000 - p.time));
+      status.textContent = 'updated ' + (age < 5 ? 'just now' : age + 's ago');
+    } catch (e) {
+      status.textContent = 'offline';
+    }
+  }
+  poll();
+  setInterval(poll, 5000);
+</script>
+{% endblock %}

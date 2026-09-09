@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Devices{% endblock %}
+{% block content %}
+<div class="topbar">
+  <h1>Devices</h1>
+  <form method="post" action="/logout" class="inline">
+    <span class="muted">{{ user.username }}</span>
+    <a href="/change-password">change password</a>
+    <button class="secondary" type="submit">Sign out</button>
+  </form>
+</div>
+
+{% for d in devices %}
+<div class="card">
+  <div class="row" style="justify-content: space-between">
+    <div>
+      <strong>{{ d.label }}</strong>
+      {% if d.online %}<span class="pill online">online</span>{% else %}<span class="pill">last seen {{ d.last_seen | ago }}</span>{% endif %}
+      <div class="muted"><code>{{ d.short_id }}…</code></div>
+    </div>
+    <div class="row">
+      {% if d.status == 'approved' %}
+        <a href="/map/{{ d.id }}"><button type="button">Open map</button></a>
+        <form method="post" action="/unfollow" class="inline">
+          <input type="hidden" name="device_id" value="{{ d.id }}">
+          <button class="secondary" type="submit">Stop following</button>
+        </form>
+      {% elif d.status == 'pending' %}
+        <span class="pill pending">waiting for approval</span>
+        <form method="post" action="/unfollow" class="inline">
+          <input type="hidden" name="device_id" value="{{ d.id }}">
+          <button class="secondary" type="submit">Cancel request</button>
+        </form>
+      {% elif d.status == 'denied' %}
+        <span class="pill denied">denied</span>
+        <form method="post" action="/follow" class="inline">
+          <input type="hidden" name="device_id" value="{{ d.id }}">
+          <button type="submit">Request again</button>
+        </form>
+      {% else %}
+        <form method="post" action="/follow" class="inline">
+          <input type="hidden" name="device_id" value="{{ d.id }}">
+          <button type="submit">Request to follow</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% else %}
+<p class="muted">No devices have connected to this server yet.</p>
+{% endfor %}
+{% endblock %}

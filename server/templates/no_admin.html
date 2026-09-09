@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Set up admin{% endblock %}
+{% block content %}
+<h1>No admin account yet</h1>
+<div class="card">
+  <p>Create one from the server host:</p>
+  <pre>sudo -u gpstrack /opt/gpstrack-share/reset-admin-password.sh</pre>
+  <p class="muted">Then reload this page and sign in.</p>
+</div>
+{% endblock %}

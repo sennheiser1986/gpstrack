@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+<div class="topbar">
+  <h1>GPS Track admin</h1>
+  <form method="post" action="/admin/logout" class="inline">
+    <span class="muted">{{ admin }}</span>
+    <button class="secondary" type="submit">Sign out</button>
+  </form>
+</div>
+
+<h2>Web users</h2>
+<table>
+  <tr><th>User</th><th>Created</th><th>State</th><th>Reset password</th><th></th></tr>
+  {% for u in users %}
+  <tr>
+    <td>{{ u.username }}{% if u.must_change_password %} <span class="pill pending">must change pw</span>{% endif %}</td>
+    <td class="muted">{{ u.created_at | dt }}</td>
+    <td>{% if u.disabled %}<span class="pill denied">disabled</span>{% else %}<span class="pill approved">active</span>{% endif %}</td>
+    <td>
+      <form method="post" action="/admin/users/{{ u.id }}/reset-password" class="inline row">
+        <input type="password" name="password" placeholder="new password" minlength="8" required>
+        <button class="secondary" type="submit">Set</button>
+      </form>
+    </td>
+    <td>
+      {% if u.disabled %}
+        <form method="post" action="/admin/users/{{ u.id }}/enable" class="inline"><button class="secondary" type="submit">Enable</button></form>
+      {% else %}
+        <form method="post" action="/admin/users/{{ u.id }}/disable" class="inline"><button class="danger" type="submit">Disable</button></form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">No web users yet.</td></tr>
+  {% endfor %}
+</table>
+
+<form method="post" action="/admin/users" class="card row">
+  <label class="field" style="margin:0"><span>New user</span>
+    <input type="text" name="username" placeholder="username" required></label>
+  <label class="field" style="margin:0"><span>Initial password (min 8)</span>
+    <input type="password" name="password" minlength="8" required></label>
+  <button type="submit">Create user</button>
+</form>
+
+<h2>Known devices</h2>
+<table>
+  <tr><th>Name</th><th>ID</th><th>Last seen</th></tr>
+  {% for d in devices %}
+  <tr>
+    <td>{{ d.label or d.id[:8] }}</td>
+    <td class="muted"><code>{{ d.id[:12] }}…</code></td>
+    <td class="muted">{{ d.last_seen | ago }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="3" class="muted">No device has synced yet.</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Follow requests</h2>
+<table>
+  <tr><th>Web user</th><th>Device</th><th>Status</th><th>Requested</th><th></th></tr>
+  {% for f in follows %}
+  <tr>
+    <td>{{ f.username }}</td>
+    <td>{{ device_labels.get(f.device_id, f.device_id[:8]) }}</td>
+    <td><span class="pill {{ f.status }}">{{ f.status }}</span></td>
+    <td class="muted">{{ f.requested_at | ago }}</td>
+    <td>
+      {% if f.status == 'approved' %}
+      <form method="post" action="/admin/follows/{{ f.id }}/revoke" class="inline">
+        <button class="danger" type="submit">Revoke</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">No follow requests.</td></tr>
+  {% endfor %}
+</table>
+<p class="muted">Requests are approved or denied by the device owner in the app; revoke is an admin override.</p>
+{% endblock %}

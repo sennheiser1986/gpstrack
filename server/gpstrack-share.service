@@ -1,0 +1,30 @@
+[Unit]
+Description=GPS Track location-sharing server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gpstrack
+WorkingDirectory=/opt/gpstrack-share
+# Bound to loopback: reach it through Apache/nginx with TLS. Change the port here if 8080
+# is taken, then `systemctl daemon-reload && systemctl restart gpstrack-share`.
+ExecStart=/opt/gpstrack-share/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=5
+
+# ProtectSystem=strict makes the whole tree read-only; StateDirectory carves out a writable
+# spot at /var/lib/gpstrack-share owned by this user for the SQLite database.
+StateDirectory=gpstrack-share
+Environment=GPSTRACK_SHARE_DB=/var/lib/gpstrack-share/gpstrack-share.db
+# Set to 0 only if you terminate TLS somewhere that does not forward X-Forwarded-Proto.
+Environment=GPSTRACK_SHARE_SECURE_COOKIES=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
