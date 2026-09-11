@@ -1,8 +1,10 @@
 package io.github.sennheiser1986.gpstrack.share
 
 import android.content.Context
+import android.provider.Settings
 import android.util.Base64
 import io.github.sennheiser1986.gpstrack.BuildConfig
+import java.security.MessageDigest
 import java.security.SecureRandom
 
 /**
@@ -15,31 +17,50 @@ import java.security.SecureRandom
  */
 class SharePreferences(context: Context) {
 
+    private val appContext = context.applicationContext
+
     private val preferences =
-        context.applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        appContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
     /**
-     * Returns this install's permanent sharing id, creating it on first call. The id is a
-     * 256-bit value from [SecureRandom], URL-safe base64 without padding (43 characters); it is
-     * an unguessable bearer token, so anyone who learns it can see this device while it
-     * broadcasts. Ids minted by older versions (random UUIDs) are kept as-is.
+     * Returns this device's permanent sharing id, deriving it on first call. The id is the
+     * SHA-256 of the device's per-app [Settings.Secure.ANDROID_ID] plus the application id,
+     * URL-safe base64 without padding (43 characters) — so reinstalling the app (or clearing
+     * its data) on the same phone always comes back with the same identity, the two build
+     * flavors stay distinct, and the raw device id is never exposed. It is a bearer token:
+     * anyone who learns it can see this device while it broadcasts, and it only changes with a
+     * factory reset. Ids stored by older versions (random tokens or UUIDs) are kept as-is.
      *
      * @return the sharing id.
      */
     fun instanceId(): String {
         preferences.getString(KEY_INSTANCE_ID, null)?.let { return it }
-        val fresh = generateInstanceId()
+        val fresh = deriveInstanceId() ?: generateRandomInstanceId()
         preferences.edit().putString(KEY_INSTANCE_ID, fresh).apply()
         return fresh
     }
 
     /**
-     * Mints a new sharing id: 32 random bytes as URL-safe base64 without padding or line
-     * breaks.
+     * Derives the device-stable sharing id.
+     *
+     * @return the 43-character token, or null when the platform reports no usable device id.
+     */
+    private fun deriveInstanceId(): String? {
+        val androidId = runCatching {
+            Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID)
+        }.getOrNull()?.takeIf { it.isNotBlank() && it != "9774d56d682e549c" } ?: return null
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("gpstrack-share-id:$androidId:${appContext.packageName}".toByteArray())
+        return Base64.encodeToString(digest, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+    }
+
+    /**
+     * Fallback when the device id is unavailable: 32 random bytes as URL-safe base64 without
+     * padding or line breaks. Such an id is stored and so survives updates, but not reinstalls.
      *
      * @return a 43-character token.
      */
-    private fun generateInstanceId(): String {
+    private fun generateRandomInstanceId(): String {
         val bytes = ByteArray(32)
         SecureRandom().nextBytes(bytes)
         return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)

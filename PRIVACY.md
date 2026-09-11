@@ -12,7 +12,10 @@ does with your data. Host it at a public URL and use that URL in the Play Consol
   speed, elevation gain). Stored in a private on-device database. Deleting a track deletes its
   points. Nothing is uploaded as part of recording.
 - **Settings** — your display name, chosen sharing-server URL, the list of people you follow,
-  and a randomly generated sharing ID for this install.
+  and a sharing ID for this device. The sharing ID is a one-way hash of the Android
+  per-app device identifier (`ANDROID_ID`) and the app's package name; the raw device
+  identifier itself never leaves your device and cannot be recovered from the hash. The ID is
+  stable across reinstalls and changes on a factory reset.
 - **Offline map** (optional) — a map data file you explicitly download.
 
 ## What leaves your device, and only if you turn it on
