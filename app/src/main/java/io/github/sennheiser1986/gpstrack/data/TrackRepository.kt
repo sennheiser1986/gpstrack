@@ -72,20 +72,24 @@ class TrackRepository(private val dao: TrackDao) {
      * @param name reader-visible name.
      * @param activityType what kind of outing this is.
      * @param points the ordered fixes; must not be empty.
+     * @param startedAtMillis original start time to preserve, or null to use the first fix.
+     * @param endedAtMillis original end time to preserve, or null to use the last fix.
      * @return the new track's id, or null when [points] is empty.
      */
     suspend fun importTrack(
         name: String,
         activityType: ActivityType,
         points: List<TrackPoint>,
+        startedAtMillis: Long? = null,
+        endedAtMillis: Long? = null,
     ): Long? {
         if (points.isEmpty()) return null
         val statistics = computeStatistics(points)
         val id = dao.insertTrack(
             Track(
                 name = name,
-                startedAtMillis = points.first().timestampMillis,
-                endedAtMillis = points.last().timestampMillis,
+                startedAtMillis = startedAtMillis ?: points.first().timestampMillis,
+                endedAtMillis = endedAtMillis ?: points.last().timestampMillis,
                 distanceMeters = statistics.distanceMeters,
                 elevationGainMeters = statistics.elevationGainMeters,
                 pointCount = points.size,

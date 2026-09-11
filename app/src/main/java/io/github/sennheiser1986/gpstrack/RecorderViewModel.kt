@@ -424,19 +424,20 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
                 _userMessage.value = "That file is not a GPS Track backup"
                 return@launch
             }
-            // importTrack stores the first fix's time as the start, so that is the stable
-            // identity a restored track keeps across repeated restores.
+            // Restored tracks keep their original start time, so (name, start time) is a
+            // stable identity whether the local copy was recorded here or restored earlier.
             val existing = repository.allTracksOnce()
                 .map { it.name to it.startedAtMillis }
                 .toHashSet()
             var imported = 0
             entries.forEach { entry ->
-                val key = entry.track.name to entry.points.first().timestampMillis
-                if (key in existing) return@forEach
+                if ((entry.track.name to entry.track.startedAtMillis) in existing) return@forEach
                 repository.importTrack(
                     name = entry.track.name,
                     activityType = entry.track.activity,
                     points = entry.points,
+                    startedAtMillis = entry.track.startedAtMillis,
+                    endedAtMillis = entry.track.endedAtMillis,
                 )
                 imported++
             }
