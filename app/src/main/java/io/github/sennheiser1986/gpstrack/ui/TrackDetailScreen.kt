@@ -51,7 +51,7 @@ import io.github.sennheiser1986.gpstrack.data.TrackStatistics
  * @param onDelete invoked when the reader confirms deletion.
  * @param onExport invoked with the chosen format.
  * @param onSetActivityType invoked when the reader reclassifies the track.
- * @param offlineMapReady whether the downloaded offline map should be used.
+ * @param offlineMapVersion offline-region set version; 0 renders online tiles.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -63,7 +63,7 @@ fun TrackDetailScreen(
     onDelete: () -> Unit,
     onExport: (ExportFormat) -> Unit,
     onSetActivityType: (ActivityType) -> Unit = {},
-    offlineMapReady: Boolean = false,
+    offlineMapVersion: Int = 0,
 ) {
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -87,7 +87,7 @@ fun TrackDetailScreen(
             markers = markers,
             fallbackCenter = path.firstOrNull(),
             focusRequest = focusRequest,
-            offlineReady = offlineMapReady,
+            offlineVersion = offlineMapVersion,
         )
 
         Column(Modifier.padding(horizontal = 16.dp)) {

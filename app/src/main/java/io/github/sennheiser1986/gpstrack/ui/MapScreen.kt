@@ -34,7 +34,7 @@ import io.github.sennheiser1986.gpstrack.share.PeerLocation
  * @param visiblePeers the peers the reader has chosen to show.
  * @param peerLocations peer id to that peer's latest reported position.
  * @param nowMillis current time, for the "last seen" labels.
- * @param offlineMapReady whether the downloaded offline map should be used.
+ * @param offlineMapVersion offline-region set version; 0 renders online tiles.
  */
 @Composable
 fun MapScreen(
@@ -42,7 +42,7 @@ fun MapScreen(
     visiblePeers: List<Peer>,
     peerLocations: Map<String, PeerLocation>,
     nowMillis: Long,
-    offlineMapReady: Boolean = false,
+    offlineMapVersion: Int = 0,
 ) {
     // Each peer's colour is its position in the list, so the colours on screen stay as far
     // apart as the palette allows for the current number of peers.
@@ -82,7 +82,7 @@ fun MapScreen(
             fallbackCenter = me,
             recenterTarget = me,
             focusRequest = focusRequest,
-            offlineReady = offlineMapReady,
+            offlineVersion = offlineMapVersion,
         )
 
         HorizontalDivider()

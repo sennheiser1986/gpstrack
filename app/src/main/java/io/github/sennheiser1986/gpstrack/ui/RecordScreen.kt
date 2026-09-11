@@ -46,7 +46,7 @@ import kotlinx.coroutines.delay
  * @param onActivityTypeChange invoked when the reader picks a different type.
  * @param onStart invoked with an optional name when the reader starts recording.
  * @param onStop invoked when the reader stops recording.
- * @param offlineMapReady whether the downloaded offline map should be used.
+ * @param offlineMapVersion offline-region set version; 0 renders online tiles.
  */
 @Composable
 fun RecordScreen(
@@ -60,7 +60,7 @@ fun RecordScreen(
     onActivityTypeChange: (ActivityType) -> Unit,
     onStart: (String?) -> Unit,
     onStop: () -> Unit,
-    offlineMapReady: Boolean = false,
+    offlineMapVersion: Int = 0,
 ) {
     Column(Modifier.fillMaxSize()) {
         val markers = buildList {
@@ -74,7 +74,7 @@ fun RecordScreen(
             markers = markers,
             fallbackCenter = currentLocation,
             recenterTarget = currentLocation,
-            offlineReady = offlineMapReady,
+            offlineVersion = offlineMapVersion,
         )
 
         Card(

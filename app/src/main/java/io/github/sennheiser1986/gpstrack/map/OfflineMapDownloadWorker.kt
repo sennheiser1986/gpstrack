@@ -19,30 +19,37 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Downloads the offline map file in the background, with a progress notification and resume
+ * Downloads one offline region in the background, with a progress notification and resume
  * support: a partial file is kept and continued with an HTTP ``Range`` request if the download
- * is interrupted.
+ * is interrupted. The region's server path arrives in the input data.
  */
 class OfflineMapDownloadWorker(
     context: Context,
     params: WorkerParameters,
 ) : CoroutineWorker(context, params) {
 
+    private val regionPath: String get() = inputData.getString(KEY_REGION_PATH).orEmpty()
+
+    private val regionName: String
+        get() = OfflineMap.displayName(regionPath.substringAfterLast('/'))
+
     /**
-     * Streams [OfflineMap.DOWNLOAD_URL] into the partial file, then swaps it into place.
+     * Streams the region file into its partial file, then swaps it into place.
      *
      * @return [Result.success] when the map is in place, [Result.retry] on a network error,
-     *   [Result.failure] when cancelled.
+     *   [Result.failure] when cancelled or misconfigured.
      */
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val target = OfflineMap.mapFile(applicationContext)
-        val part = OfflineMap.partFile(applicationContext)
+        if (regionPath.isEmpty()) return@withContext Result.failure()
+        val target = OfflineMap.fileForRegion(applicationContext, regionPath)
+        val part = OfflineMap.partFileForRegion(applicationContext, regionPath)
         target.parentFile?.mkdirs()
 
         runCatching { setForeground(foregroundInfo(0)) }
 
         val alreadyHave = if (part.isFile) part.length() else 0L
-        val connection = (URL(OfflineMap.DOWNLOAD_URL).openConnection() as HttpURLConnection).apply {
+        val url = "${OfflineMap.BASE_URL}/${regionPath.trim('/')}"
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 20_000
             readTimeout = 30_000
             setRequestProperty("User-Agent", "GPSTrack/1.0 (Android)")
@@ -111,23 +118,31 @@ class OfflineMapDownloadWorker(
         val notification = NotificationCompat.Builder(
             applicationContext, TrackRecorderApp.OFFLINE_MAP_CHANNEL_ID,
         )
-            .setContentTitle("Downloading offline map")
+            .setContentTitle("Downloading map: $regionName")
             .setContentText(if (percent in 0..100) "$percent%" else "Starting…")
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)
             .setProgress(100, percent.coerceIn(0, 100), percent !in 0..100)
             .setContentIntent(open)
             .build()
+        // One notification id per region, so parallel downloads each show their own progress.
+        val id = NOTIFICATION_ID_BASE + (regionPath.hashCode() and 0xFF)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            ForegroundInfo(id, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
-            ForegroundInfo(NOTIFICATION_ID, notification)
+            ForegroundInfo(id, notification)
         }
     }
 
     companion object {
         /** Work progress key: percent complete (Int). */
         const val KEY_PERCENT = "percent"
-        private const val NOTIFICATION_ID = 4203
+
+        /** Input data key: the region's server-relative path, e.g. "europe/belgium.map". */
+        const val KEY_REGION_PATH = "region_path"
+
+        // 4400+ keeps clear of the recording (4201), sharing (4202) and follow-request
+        // (4300..) notification ids.
+        private const val NOTIFICATION_ID_BASE = 4400
     }
 }

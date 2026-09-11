@@ -213,8 +213,10 @@ private fun TrackRecorderRoot(
     val followRequests by viewModel.followRequests.collectAsStateWithLifecycle()
     val webFollowers by viewModel.webFollowers.collectAsStateWithLifecycle()
     val qrPayload by viewModel.qrPayload.collectAsStateWithLifecycle()
-    val offlineMapState by viewModel.offlineMapState.collectAsStateWithLifecycle()
-    val offlineMapReady by viewModel.offlineMapReady.collectAsStateWithLifecycle()
+    val offlineRegions by viewModel.offlineRegions.collectAsStateWithLifecycle()
+    val offlineDownloads by viewModel.offlineDownloads.collectAsStateWithLifecycle()
+    val offlineMapVersion by viewModel.offlineMapVersion.collectAsStateWithLifecycle()
+    val catalog by viewModel.catalog.collectAsStateWithLifecycle()
 
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.RECORD) }
 
@@ -454,7 +456,7 @@ private fun TrackRecorderRoot(
                     onDelete = { viewModel.deleteTrack(openTrack.id) },
                     onExport = { viewModel.requestExport(it) },
                     onSetActivityType = { viewModel.setTrackActivityType(openTrack.id, it) },
-                    offlineMapReady = offlineMapReady,
+                    offlineMapVersion = offlineMapVersion,
                 )
             }
             return@Scaffold
@@ -489,7 +491,7 @@ private fun TrackRecorderRoot(
                         }
                     },
                     onStop = { viewModel.stopRecording() },
-                    offlineMapReady = offlineMapReady,
+                    offlineMapVersion = offlineMapVersion,
                 )
 
                 AppTab.TRACKS -> TracksScreen(
@@ -505,7 +507,7 @@ private fun TrackRecorderRoot(
                     visiblePeers = peers.filter { it.visibleOnMap },
                     peerLocations = peerLocations,
                     nowMillis = nowMillis,
-                    offlineMapReady = offlineMapReady,
+                    offlineMapVersion = offlineMapVersion,
                 )
 
                 AppTab.SHARE -> ShareScreen(
@@ -548,10 +550,14 @@ private fun TrackRecorderRoot(
                 )
 
                 AppTab.MANUAL -> ManualScreen(
-                    offlineMapState = offlineMapState,
-                    onDownloadOfflineMap = { viewModel.downloadOfflineMap() },
-                    onCancelOfflineMap = { viewModel.cancelOfflineMapDownload() },
-                    onDeleteOfflineMap = { viewModel.deleteOfflineMap() },
+                    offlineRegions = offlineRegions,
+                    offlineDownloads = offlineDownloads,
+                    catalog = catalog,
+                    onOpenCatalog = { viewModel.openCatalog(it) },
+                    onCloseCatalog = { viewModel.closeCatalog() },
+                    onDownloadRegion = { viewModel.downloadRegion(it) },
+                    onCancelDownload = { viewModel.cancelRegionDownload(it) },
+                    onDeleteRegion = { viewModel.deleteRegion(it) },
                     batteryExempt = batteryExempt,
                     onRequestBatteryExemption = { requestBatteryExemption(context) },
                     onBackup = { viewModel.requestBackup() },

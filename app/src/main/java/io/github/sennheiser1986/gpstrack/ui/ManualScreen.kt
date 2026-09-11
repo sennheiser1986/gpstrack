@@ -1,33 +1,64 @@
 package io.github.sennheiser1986.gpstrack.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import io.github.sennheiser1986.gpstrack.map.OfflineMapState
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import io.github.sennheiser1986.gpstrack.map.CatalogEntry
+import io.github.sennheiser1986.gpstrack.map.CatalogState
+import io.github.sennheiser1986.gpstrack.map.OfflineDownload
+import io.github.sennheiser1986.gpstrack.map.OfflineRegion
 
 /**
- * The Manual tab. It leads with the offline-map control and then all the caveats and background
- * notes that do not belong under the controls on the other screens.
+ * The Manual tab. It leads with the offline-maps manager and then all the caveats and
+ * background notes that do not belong under the controls on the other screens.
  *
- * @param offlineMapState what the offline Belgium map is currently doing.
- * @param onDownloadOfflineMap start (or resume) the offline-map download.
- * @param onCancelOfflineMap cancel an in-progress download.
- * @param onDeleteOfflineMap remove the offline map and go back to online tiles.
+ * @param offlineRegions the installed offline regions.
+ * @param offlineDownloads region downloads in progress or failed.
+ * @param catalog what the region picker is showing.
+ * @param onOpenCatalog open or navigate the region picker to a catalogue directory.
+ * @param onCloseCatalog close the region picker.
+ * @param onDownloadRegion start downloading a region from the catalogue.
+ * @param onCancelDownload cancel one region's download.
+ * @param onDeleteRegion delete one installed region.
  * @param batteryExempt whether the app is already excluded from battery optimisation.
  * @param onRequestBatteryExemption open the system dialog asking for the exclusion.
  * @param onBackup export every track to a single backup file.
@@ -35,15 +66,21 @@ import io.github.sennheiser1986.gpstrack.map.OfflineMapState
  */
 @Composable
 fun ManualScreen(
-    offlineMapState: OfflineMapState = OfflineMapState.Absent,
-    onDownloadOfflineMap: () -> Unit = {},
-    onCancelOfflineMap: () -> Unit = {},
-    onDeleteOfflineMap: () -> Unit = {},
+    offlineRegions: List<OfflineRegion> = emptyList(),
+    offlineDownloads: List<OfflineDownload> = emptyList(),
+    catalog: CatalogState = CatalogState.Idle,
+    onOpenCatalog: (String) -> Unit = {},
+    onCloseCatalog: () -> Unit = {},
+    onDownloadRegion: (String) -> Unit = {},
+    onCancelDownload: (String) -> Unit = {},
+    onDeleteRegion: (String) -> Unit = {},
     batteryExempt: Boolean = true,
     onRequestBatteryExemption: () -> Unit = {},
     onBackup: () -> Unit = {},
     onRestore: () -> Unit = {},
 ) {
+    var showPicker by remember { mutableStateOf(false) }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -55,7 +92,17 @@ fun ManualScreen(
             BatteryCard(onRequestBatteryExemption)
         }
 
-        OfflineMapCard(offlineMapState, onDownloadOfflineMap, onCancelOfflineMap, onDeleteOfflineMap)
+        OfflineMapsCard(
+            regions = offlineRegions,
+            downloads = offlineDownloads,
+            onAddRegion = {
+                showPicker = true
+                onOpenCatalog("")
+            },
+            onCancelDownload = onCancelDownload,
+            onRetryDownload = onDownloadRegion,
+            onDeleteRegion = onDeleteRegion,
+        )
 
         BackupCard(onBackup, onRestore)
 
@@ -88,12 +135,14 @@ fun ManualScreen(
                 "above saves every track to one file and restores from it.",
         )
         Section(
-            "Offline map",
-            "The maps normally stream tiles from OpenStreetMap. Download the offline map above " +
-                "(a single vector file for Belgium, a few hundred MB) and every map in the app " +
-                "renders from it with no network — useful out of coverage. It keeps working " +
-                "outside Belgium, just without map detail there. Delete it any time to go back " +
-                "to online tiles.",
+            "Offline maps",
+            "The maps normally stream tiles from OpenStreetMap. \"Add region\" above browses " +
+                "the MapsForge map server — continents, countries, and sub-regions for the " +
+                "large ones, searchable by name and with file sizes shown (a country is " +
+                "typically a few hundred MB). Any number of regions can be installed side by " +
+                "side; while at least one is present, every map in the app renders offline. " +
+                "Outside your downloaded regions the map is simply empty. Delete regions any " +
+                "time to go back to online tiles.",
         )
         Section(
             "Sharing your location",
@@ -125,6 +174,20 @@ fun ManualScreen(
                 "ID. It keeps only the most recent value and forgets it a couple of minutes " +
                 "after you stop. Treat the QR code as a secret: anyone who scans it can see " +
                 "where you are while you broadcast.",
+        )
+    }
+
+    if (showPicker) {
+        RegionPickerDialog(
+            catalog = catalog,
+            installedFileNames = offlineRegions.map { it.file.name }.toSet(),
+            downloadingPaths = offlineDownloads.filterNot { it.failed }.map { it.regionPath }.toSet(),
+            onNavigate = onOpenCatalog,
+            onDownload = onDownloadRegion,
+            onDismiss = {
+                showPicker = false
+                onCloseCatalog()
+            },
         )
     }
 }
@@ -189,19 +252,24 @@ private fun BackupCard(onBackup: () -> Unit, onRestore: () -> Unit) {
 }
 
 /**
- * The offline-map control: status plus a download / cancel / delete button.
+ * The offline-maps manager: the installed regions, active downloads, and the entry point into
+ * the region picker.
  *
- * @param state the current offline-map state.
- * @param onDownload start or resume the download.
- * @param onCancel cancel an in-progress download.
- * @param onDelete remove the downloaded map.
+ * @param regions installed regions.
+ * @param downloads region downloads in progress or failed.
+ * @param onAddRegion open the region picker.
+ * @param onCancelDownload cancel one region's download.
+ * @param onRetryDownload restart a failed region download.
+ * @param onDeleteRegion delete one installed region.
  */
 @Composable
-private fun OfflineMapCard(
-    state: OfflineMapState,
-    onDownload: () -> Unit,
-    onCancel: () -> Unit,
-    onDelete: () -> Unit,
+private fun OfflineMapsCard(
+    regions: List<OfflineRegion>,
+    downloads: List<OfflineDownload>,
+    onAddRegion: () -> Unit,
+    onCancelDownload: (String) -> Unit,
+    onRetryDownload: (String) -> Unit,
+    onDeleteRegion: (String) -> Unit,
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(
@@ -209,43 +277,222 @@ private fun OfflineMapCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                "Offline map (Belgium)",
+                "Offline maps",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
-            when (state) {
-                is OfflineMapState.Absent -> {
-                    Text("Not downloaded — the maps use online tiles.", style = MaterialTheme.typography.bodyMedium)
-                    Button(onClick = onDownload) { Text("Download") }
-                }
-                is OfflineMapState.Downloading -> {
-                    Text(
-                        if (state.percent in 0..100) "Downloading… ${state.percent}%" else "Starting…",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    if (state.percent in 0..100) {
-                        LinearProgressIndicator(
-                            progress = { state.percent / 100f },
-                            modifier = Modifier.fillMaxWidth(),
+            if (regions.isEmpty() && downloads.isEmpty()) {
+                Text(
+                    "No regions downloaded — the maps use online tiles.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            regions.forEach { region ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(region.displayName, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "%.0f MB".format(region.sizeBytes / 1_048_576.0),
+                            style = MaterialTheme.typography.bodySmall,
                         )
-                    } else {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
-                    OutlinedButton(onClick = onCancel) { Text("Cancel") }
+                    IconButton(onClick = { onDeleteRegion(region.file.name) }) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Delete ${region.displayName}")
+                    }
                 }
-                is OfflineMapState.Ready -> {
+            }
+            downloads.forEach { download ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(download.displayName, style = MaterialTheme.typography.bodyLarge)
+                        if (download.failed) {
+                            Text(
+                                "Download failed",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        } else if (download.percent in 0..100) {
+                            LinearProgressIndicator(
+                                progress = { download.percent / 100f },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp, end = 8.dp),
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                Modifier.fillMaxWidth().padding(top = 4.dp, end = 8.dp),
+                            )
+                        }
+                    }
+                    if (download.failed) {
+                        TextButton(onClick = { onRetryDownload(download.regionPath) }) { Text("Retry") }
+                    } else {
+                        IconButton(onClick = { onCancelDownload(download.regionPath) }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Cancel ${download.displayName}")
+                        }
+                    }
+                }
+            }
+            Button(onClick = onAddRegion) { Text("Add region") }
+        }
+    }
+}
+
+/**
+ * Full-screen region picker: browses the MapsForge catalogue directory by directory, with a
+ * search field filtering the current listing and file sizes on every downloadable region.
+ *
+ * @param catalog what is currently loaded.
+ * @param installedFileNames local file names of already-installed regions.
+ * @param downloadingPaths region paths currently downloading.
+ * @param onNavigate open a catalogue directory ("" for the continents).
+ * @param onDownload start downloading a region.
+ * @param onDismiss close the picker.
+ */
+@Composable
+private fun RegionPickerDialog(
+    catalog: CatalogState,
+    installedFileNames: Set<String>,
+    downloadingPaths: Set<String>,
+    onNavigate: (String) -> Unit,
+    onDownload: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val currentPath = when (catalog) {
+        is CatalogState.Loading -> catalog.path
+        is CatalogState.Error -> catalog.path
+        is CatalogState.Loaded -> catalog.path
+        CatalogState.Idle -> ""
+    }
+    // A new directory starts unfiltered.
+    LaunchedEffect(currentPath) { query = "" }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (currentPath.isNotEmpty()) {
+                        IconButton(onClick = {
+                            val parent = currentPath.trim('/').substringBeforeLast('/', "")
+                            onNavigate(if (parent == currentPath.trim('/')) "" else parent)
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Up")
+                        }
+                    }
                     Text(
-                        "Ready — %.0f MB. Maps render offline.".format(state.bytes / 1_048_576.0),
-                        style = MaterialTheme.typography.bodyMedium,
+                        if (currentPath.isEmpty()) "Choose a region" else currentPath.trim('/'),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
                     )
-                    OutlinedButton(onClick = onDelete) { Text("Delete") }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.Close, contentDescription = "Close")
+                    }
                 }
-                is OfflineMapState.Failed -> {
-                    Text("Download failed. Check the connection and try again.", style = MaterialTheme.typography.bodyMedium)
-                    Button(onClick = onDownload) { Text("Retry") }
+
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    label = { Text("Search") },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                )
+
+                when (catalog) {
+                    is CatalogState.Loading, CatalogState.Idle -> Box(
+                        Modifier.fillMaxWidth().heightIn(min = 120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator() }
+
+                    is CatalogState.Error -> Column(
+                        Modifier.fillMaxWidth().padding(top = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            "Could not load the list (${catalog.message}). Check the connection.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Button(onClick = { onNavigate(catalog.path) }) { Text("Retry") }
+                    }
+
+                    is CatalogState.Loaded -> {
+                        val filtered = catalog.entries.filter {
+                            query.isBlank() || it.name.contains(query.trim(), ignoreCase = true)
+                        }
+                        LazyColumn(Modifier.fillMaxSize()) {
+                            items(filtered, key = { it.path }) { entry ->
+                                CatalogRow(
+                                    entry = entry,
+                                    installed = !entry.isFolder &&
+                                        entry.path.trim('/').replace("/", "__") in installedFileNames,
+                                    downloading = entry.path in downloadingPaths,
+                                    onClick = {
+                                        if (entry.isFolder) onNavigate(entry.path) else onDownload(entry.path)
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+/**
+ * One row of the region picker.
+ *
+ * @param entry the catalogue entry.
+ * @param installed true when this region is already downloaded.
+ * @param downloading true when this region is currently downloading.
+ * @param onClick open the folder, or start the download.
+ */
+@Composable
+private fun CatalogRow(
+    entry: CatalogEntry,
+    installed: Boolean,
+    downloading: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !installed && !downloading, onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (entry.isFolder) {
+            Icon(
+                Icons.Filled.Folder,
+                contentDescription = null,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+        }
+        Text(
+            entry.name,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f).padding(start = if (entry.isFolder) 0.dp else 36.dp),
+        )
+        Text(
+            when {
+                installed -> "installed"
+                downloading -> "downloading…"
+                else -> entry.sizeLabel ?: ""
+            },
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 

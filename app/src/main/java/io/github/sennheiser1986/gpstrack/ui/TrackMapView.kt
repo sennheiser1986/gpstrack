@@ -165,8 +165,9 @@ private const val DEFAULT_ZOOM = 11.0
  *   point (normally the reader's own current position).
  * @param focusRequest when it changes to a non-null value, the camera pans to that point at the
  *   current zoom; used to jump to a marker when its legend row is tapped.
- * @param offlineReady when true, the map renders from the downloaded offline vector map instead
- *   of the online OpenStreetMap tiles.
+ * @param offlineVersion 0 to stream online OpenStreetMap tiles; any other value means offline
+ *   regions are installed and the map renders from them. The value changes whenever the
+ *   installed set changes, so a newly downloaded region is picked up.
  */
 @Composable
 fun TrackMapView(
@@ -176,7 +177,7 @@ fun TrackMapView(
     fallbackCenter: LatLon? = null,
     recenterTarget: LatLon? = null,
     focusRequest: MapFocusRequest? = null,
-    offlineReady: Boolean = false,
+    offlineVersion: Int = 0,
 ) {
     val context = LocalContext.current
     val mapView = remember {
@@ -208,9 +209,9 @@ fun TrackMapView(
         mapView.invalidate()
     }
 
-    // Pick the tile source: the offline vector map when it is present, otherwise online OSM.
-    LaunchedEffect(offlineReady) {
-        val offline = if (offlineReady) OfflineMap.tileProvider(context) else null
+    // Pick the tile source: the offline regions when any are present, otherwise online OSM.
+    LaunchedEffect(offlineVersion) {
+        val offline = if (offlineVersion != 0) OfflineMap.tileProvider(context) else null
         if (offline != null) {
             mapView.tileProvider = offline
             mapView.setTileSource(offline.tileSource)

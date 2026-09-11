@@ -10,82 +10,141 @@ import org.osmdroid.tileprovider.util.SimpleRegisterReceiver
 import java.io.File
 
 /**
- * The optional offline vector map: a single MapsForge ``.map`` file (Belgium) that, once
- * downloaded, lets every map in the app render without any tile server.
+ * A downloaded offline region: one MapsForge ``.map`` file.
  *
- * The file lives in the app's external files dir so it survives updates, needs no permission,
- * and can be inspected or replaced over ``adb``.
+ * @property file the map file on disk.
+ * @property displayName reader-visible region name, e.g. "belgium" or "germany / berlin".
+ * @property sizeBytes the file size.
+ */
+data class OfflineRegion(
+    val file: File,
+    val displayName: String,
+    val sizeBytes: Long,
+)
+
+/**
+ * The optional offline vector maps: MapsForge ``.map`` files downloaded per region from the
+ * MapsForge server. Any number of regions can be installed side by side; every map in the app
+ * renders from all of them at once.
+ *
+ * Files live in the app's external files dir so they survive updates, need no permission, and
+ * can be inspected or replaced over ``adb``. A region's server path (e.g. ``europe/belgium.map``)
+ * maps to a flat local file name with ``__`` for slashes; the pre-multi-region ``belgium.map``
+ * file is still recognised.
  */
 object OfflineMap {
 
-    /** Where the finished map is downloaded from; overridable at build time. */
-    const val DOWNLOAD_URL: String = BuildConfig.OFFLINE_MAP_URL
+    /** Base URL of the MapsForge map tree; overridable at build time. */
+    const val BASE_URL: String = BuildConfig.OFFLINE_MAP_BASE_URL
 
-    private const val FILE_NAME = "belgium.map"
+    /** Separator that replaces ``/`` in server paths to form a flat local file name. */
+    private const val PATH_SEPARATOR = "__"
 
     @Volatile
     private var graphicsInitialised = false
 
     /**
-     * The offline map file (may not exist yet).
+     * The directory holding the downloaded regions.
      *
      * @param context any context.
-     * @return the target [File].
+     * @return the offline dir (created by the framework on first use).
      */
-    fun mapFile(context: Context): File =
-        File(context.getExternalFilesDir("offline"), FILE_NAME)
+    fun dir(context: Context): File = context.getExternalFilesDir("offline")!!
 
     /**
-     * The partial-download file used while a download is in progress.
+     * The installed regions, alphabetically.
      *
      * @param context any context.
-     * @return the ``.part`` [File].
+     * @return one [OfflineRegion] per complete ``.map`` file.
      */
-    fun partFile(context: Context): File =
-        File(context.getExternalFilesDir("offline"), "$FILE_NAME.part")
+    fun regions(context: Context): List<OfflineRegion> =
+        dir(context).listFiles { file -> file.isFile && file.name.endsWith(".map") && file.length() > 0 }
+            .orEmpty()
+            .sortedBy { it.name }
+            .map { OfflineRegion(it, displayName(it.name), it.length()) }
 
     /**
-     * Whether a usable offline map is present.
+     * Turns a local file name back into a readable region name.
      *
-     * @param context any context.
-     * @return true when the map file exists and is non-empty.
+     * @param fileName e.g. "europe__germany__berlin.map" or the legacy "belgium.map".
+     * @return e.g. "germany / berlin" (the leading continent is dropped when present).
      */
-    fun isReady(context: Context): Boolean = mapFile(context).let { it.isFile && it.length() > 0L }
-
-    /**
-     * Size of the downloaded map in bytes, or 0 when absent.
-     *
-     * @param context any context.
-     * @return the file size.
-     */
-    fun sizeBytes(context: Context): Long = mapFile(context).takeIf { it.isFile }?.length() ?: 0L
-
-    /**
-     * Removes the offline map and any partial download.
-     *
-     * @param context any context.
-     */
-    fun delete(context: Context) {
-        mapFile(context).delete()
-        partFile(context).delete()
+    fun displayName(fileName: String): String {
+        val parts = fileName.removeSuffix(".map").split(PATH_SEPARATOR)
+        val withoutContinent = if (parts.size > 1) parts.drop(1) else parts
+        return withoutContinent.joinToString(" / ")
     }
 
     /**
-     * Builds an osmdroid tile provider that renders from the offline map, or null when no map
-     * is present or it cannot be opened.
+     * The local file a server region path downloads to.
+     *
+     * @param context any context.
+     * @param regionPath server-relative path, e.g. "europe/belgium.map".
+     * @return the target [File].
+     */
+    fun fileForRegion(context: Context, regionPath: String): File =
+        File(dir(context), regionPath.trim('/').replace("/", PATH_SEPARATOR))
+
+    /**
+     * The partial-download file used while a region download is in progress.
+     *
+     * @param context any context.
+     * @param regionPath server-relative path.
+     * @return the ``.part`` [File].
+     */
+    fun partFileForRegion(context: Context, regionPath: String): File =
+        File(dir(context), fileForRegion(context, regionPath).name + ".part")
+
+    /**
+     * Whether at least one usable offline region is present.
+     *
+     * @param context any context.
+     * @return true when the maps can render offline.
+     */
+    fun isReady(context: Context): Boolean = regions(context).isNotEmpty()
+
+    /**
+     * A value that changes whenever the installed set of regions changes, for keying the map's
+     * tile-provider setup.
+     *
+     * @param context any context.
+     * @return 0 when no region is installed, otherwise a hash of the file names and sizes.
+     */
+    fun version(context: Context): Int {
+        val regions = regions(context)
+        if (regions.isEmpty()) return 0
+        return regions.joinToString { "${it.file.name}:${it.sizeBytes}" }.hashCode().let {
+            if (it == 0) 1 else it
+        }
+    }
+
+    /**
+     * Removes one region and any partial download for it.
+     *
+     * @param context any context.
+     * @param fileName the region's local file name.
+     */
+    fun deleteRegion(context: Context, fileName: String) {
+        File(dir(context), fileName).delete()
+        File(dir(context), "$fileName.part").delete()
+    }
+
+    /**
+     * Builds an osmdroid tile provider that renders from every installed region, or null when
+     * none is present or they cannot be opened.
      *
      * @param context any context.
      * @return a [MapsForgeTileProvider], or null.
      */
     fun tileProvider(context: Context): MapTileProviderBase? {
-        val file = mapFile(context)
-        if (!file.isFile || file.length() == 0L) return null
+        val files = regions(context).map { it.file }
+        if (files.isEmpty()) return null
         return runCatching {
             if (!graphicsInitialised) {
                 MapsForgeTileSource.createInstance(context.applicationContext as Application)
                 graphicsInitialised = true
             }
-            val source = MapsForgeTileSource.createFromFiles(arrayOf(file))
+            val source = MapsForgeTileSource.createFromFiles(files.toTypedArray())
             MapsForgeTileProvider(SimpleRegisterReceiver(context), source, null)
         }.getOrNull()
     }

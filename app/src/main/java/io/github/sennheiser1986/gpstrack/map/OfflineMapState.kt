@@ -1,25 +1,31 @@
 package io.github.sennheiser1986.gpstrack.map
 
-/** What the interface should show for the offline map. */
-sealed interface OfflineMapState {
+/**
+ * One in-flight (or failed) region download, for the Manual tab.
+ *
+ * @property regionPath server-relative path being downloaded.
+ * @property displayName reader-visible region name.
+ * @property percent progress 0..100, or -1 while unknown.
+ * @property failed true when the download gave up and can be retried.
+ */
+data class OfflineDownload(
+    val regionPath: String,
+    val displayName: String,
+    val percent: Int,
+    val failed: Boolean,
+)
 
-    /** No offline map, and none downloading. */
-    data object Absent : OfflineMapState
+/** What the offline-map region picker is currently showing. */
+sealed interface CatalogState {
+    /** The picker is closed or has nothing loaded. */
+    data object Idle : CatalogState
 
-    /**
-     * A download is running.
-     *
-     * @property percent 0..100, or -1 when the total size is not yet known.
-     */
-    data class Downloading(val percent: Int) : OfflineMapState
+    /** A directory listing is being fetched. */
+    data class Loading(val path: String) : CatalogState
 
-    /**
-     * The offline map is ready to use.
-     *
-     * @property bytes its size on disk.
-     */
-    data class Ready(val bytes: Long) : OfflineMapState
+    /** The listing could not be fetched. */
+    data class Error(val path: String, val message: String) : CatalogState
 
-    /** The last download attempt failed. */
-    data object Failed : OfflineMapState
+    /** A directory listing is on screen. */
+    data class Loaded(val path: String, val entries: List<CatalogEntry>) : CatalogState
 }

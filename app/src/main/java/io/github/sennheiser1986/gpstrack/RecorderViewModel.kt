@@ -13,10 +13,13 @@ import io.github.sennheiser1986.gpstrack.data.TrackExporter
 import io.github.sennheiser1986.gpstrack.data.TrackPoint
 import io.github.sennheiser1986.gpstrack.data.TrackStatistics
 import io.github.sennheiser1986.gpstrack.data.computeStatistics
+import io.github.sennheiser1986.gpstrack.map.CatalogState
+import io.github.sennheiser1986.gpstrack.map.MapsForgeCatalog
+import io.github.sennheiser1986.gpstrack.map.OfflineDownload
 import io.github.sennheiser1986.gpstrack.map.OfflineMap
 import io.github.sennheiser1986.gpstrack.map.OfflineMapDownloadWorker
 import io.github.sennheiser1986.gpstrack.map.OfflineMapRepository
-import io.github.sennheiser1986.gpstrack.map.OfflineMapState
+import io.github.sennheiser1986.gpstrack.map.OfflineRegion
 import io.github.sennheiser1986.gpstrack.record.LocationRecordingService
 import io.github.sennheiser1986.gpstrack.record.RecordPreferences
 import io.github.sennheiser1986.gpstrack.record.RecordingState
@@ -170,56 +173,110 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
             ShareCodec.encode(instanceId, sharePreferences.displayName()),
         )
 
-    // --- Offline map ------------------------------------------------------------------------
+    // --- Offline maps -----------------------------------------------------------------------
 
-    /** What the offline map (Belgium) is doing: absent, downloading, ready or failed. */
-    val offlineMapState: StateFlow<OfflineMapState> =
-        OfflineMapRepository.workInfo(application)
-            .map { infos -> offlineMapStateFrom(infos) }
+    /** Bumped whenever the installed regions change, to re-read the file system. */
+    private val offlineRefresh = MutableStateFlow(0)
+
+    /** The installed offline regions, refreshed when downloads finish or regions are deleted. */
+    val offlineRegions: StateFlow<List<OfflineRegion>> =
+        kotlinx.coroutines.flow.combine(
+            OfflineMapRepository.workInfos(application),
+            offlineRefresh,
+        ) { _, _ -> OfflineMap.regions(application) }
             .stateIn(
                 viewModelScope,
                 SharingStarted.WhileSubscribed(5_000),
-                if (OfflineMap.isReady(application)) {
-                    OfflineMapState.Ready(OfflineMap.sizeBytes(application))
-                } else {
-                    OfflineMapState.Absent
-                },
+                OfflineMap.regions(application),
             )
 
-    /** True once a usable offline map is present, so the maps can switch to it. */
-    val offlineMapReady: StateFlow<Boolean> = offlineMapState
-        .map { it is OfflineMapState.Ready }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OfflineMap.isReady(application))
+    /** Region downloads currently running, queued or failed. */
+    val offlineDownloads: StateFlow<List<OfflineDownload>> =
+        OfflineMapRepository.workInfos(application)
+            .map { infos -> offlineDownloadsFrom(infos) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * Folds the download job's [WorkInfo]s and the file's presence into an [OfflineMapState].
-     *
-     * @param infos the unique work's infos (zero or one).
-     * @return the state to show.
+     * Changes whenever the installed set of regions changes; 0 while none is installed. The
+     * maps key their tile-provider setup on it so a newly downloaded region shows up.
      */
-    private fun offlineMapStateFrom(infos: List<WorkInfo>): OfflineMapState {
-        val info = infos.firstOrNull()
-        return when {
-            OfflineMap.isReady(getApplication()) -> OfflineMapState.Ready(OfflineMap.sizeBytes(getApplication()))
-            info?.state == WorkInfo.State.RUNNING ->
-                OfflineMapState.Downloading(info.progress.getInt(OfflineMapDownloadWorker.KEY_PERCENT, -1))
-            info?.state == WorkInfo.State.ENQUEUED -> OfflineMapState.Downloading(-1)
-            info?.state == WorkInfo.State.FAILED -> OfflineMapState.Failed
-            else -> OfflineMapState.Absent
+    val offlineMapVersion: StateFlow<Int> = offlineRegions
+        .map { OfflineMap.version(getApplication()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OfflineMap.version(application))
+
+    private val _catalog = MutableStateFlow<CatalogState>(CatalogState.Idle)
+
+    /** What the region picker is showing. */
+    val catalog: StateFlow<CatalogState> = _catalog.asStateFlow()
+
+    /**
+     * Maps the download jobs' [WorkInfo]s to the Manual tab's download rows.
+     *
+     * @param infos all offline-map work infos.
+     * @return one row per active or failed download.
+     */
+    private fun offlineDownloadsFrom(infos: List<WorkInfo>): List<OfflineDownload> =
+        infos.mapNotNull { info ->
+            val path = OfflineMapRepository.regionPathOf(info) ?: return@mapNotNull null
+            val name = OfflineMap.displayName(path.substringAfterLast('/'))
+            when (info.state) {
+                WorkInfo.State.RUNNING -> OfflineDownload(
+                    path, name, info.progress.getInt(OfflineMapDownloadWorker.KEY_PERCENT, -1), failed = false,
+                )
+                WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED ->
+                    OfflineDownload(path, name, -1, failed = false)
+                WorkInfo.State.FAILED -> OfflineDownload(path, name, -1, failed = true)
+                else -> null
+            }
+        }.distinctBy { it.regionPath }
+
+    /**
+     * Opens (or navigates) the region picker to a catalogue directory.
+     *
+     * @param path server-relative directory, "" for the continents.
+     */
+    fun openCatalog(path: String) {
+        _catalog.value = CatalogState.Loading(path)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val result = runCatching { MapsForgeCatalog.list(path) }
+            _catalog.value = result.fold(
+                onSuccess = { CatalogState.Loaded(path, it) },
+                onFailure = { CatalogState.Error(path, it.message ?: "network error") },
+            )
         }
     }
 
-    /** Starts (or resumes) the offline-map download. */
-    fun downloadOfflineMap() = OfflineMapRepository.start(getApplication())
+    /** Closes the region picker. */
+    fun closeCatalog() {
+        _catalog.value = CatalogState.Idle
+    }
 
-    /** Cancels an in-progress offline-map download. */
-    fun cancelOfflineMapDownload() = OfflineMapRepository.cancel(getApplication())
+    /**
+     * Starts downloading a region from the catalogue.
+     *
+     * @param regionPath server-relative path, e.g. "europe/belgium.map".
+     */
+    fun downloadRegion(regionPath: String) =
+        OfflineMapRepository.start(getApplication(), regionPath)
 
-    /** Deletes the offline map so the app goes back to online tiles. */
-    fun deleteOfflineMap() {
-        OfflineMapRepository.cancel(getApplication())
-        OfflineMap.delete(getApplication())
-        // Nudge the state flow: cancelUniqueWork clears the WorkInfo, which re-emits.
+    /**
+     * Cancels one region's download.
+     *
+     * @param regionPath the region being downloaded.
+     */
+    fun cancelRegionDownload(regionPath: String) {
+        OfflineMapRepository.cancel(getApplication(), regionPath)
+        offlineRefresh.value++
+    }
+
+    /**
+     * Deletes one installed region.
+     *
+     * @param fileName the region's local file name.
+     */
+    fun deleteRegion(fileName: String) {
+        OfflineMap.deleteRegion(getApplication(), fileName)
+        offlineRefresh.value++
     }
 
     init {

@@ -44,11 +44,11 @@ android {
             ?: "https://gpstrack.example.org"
         buildConfigField("String", "DEFAULT_SHARE_SERVER_URL", "\"$shareServerUrl\"")
 
-        // Offline vector map (MapsForge). The default is the public MapsForge download mirror;
-        // override with -PofflineMapUrl=... to point at your own copy.
-        val offlineMapUrl = (project.findProperty("offlineMapUrl") as String?)
-            ?: "https://download.mapsforge.org/maps/v5/europe/belgium.map"
-        buildConfigField("String", "OFFLINE_MAP_URL", "\"$offlineMapUrl\"")
+        // Offline vector maps (MapsForge). The app browses this server's directory tree and
+        // downloads regions from it; override with -PofflineMapBaseUrl=... to use a mirror.
+        val offlineMapBaseUrl = (project.findProperty("offlineMapBaseUrl") as String?)
+            ?: "https://download.mapsforge.org/maps/v5"
+        buildConfigField("String", "OFFLINE_MAP_BASE_URL", "\"${offlineMapBaseUrl.trimEnd('/')}\"")
     }
 
     // Two installable copies of the app, so a phone (or one emulator) can run two instances
