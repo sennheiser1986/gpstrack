@@ -10,6 +10,15 @@
   </form>
 </div>
 
+{% if devices | selectattr("status", "equalto", "approved") | list %}
+<div class="card">
+  <div class="row" style="justify-content: space-between">
+    <div>Everyone you follow, live on one map.</div>
+    <a href="/map"><button type="button">Open map</button></a>
+  </div>
+</div>
+{% endif %}
+
 {% for d in devices %}
 <div class="card">
   <div class="row" style="justify-content: space-between">
@@ -20,7 +29,7 @@
     </div>
     <div class="row">
       {% if d.status == 'approved' %}
-        <a href="/map/{{ d.id }}"><button type="button">Open map</button></a>
+        <a href="/map"><button type="button">Open map</button></a>
         <form method="post" action="/unfollow" class="inline">
           <input type="hidden" name="device_id" value="{{ d.id }}">
           <button class="secondary" type="submit">Stop following</button>

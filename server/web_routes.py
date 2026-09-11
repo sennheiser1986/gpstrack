@@ -1,8 +1,9 @@
-"""The web-follow site: web users sign in, request to follow a device, and — once the device
-owner approves in the app — watch it on a live map.
+"""The web-follow site: web users sign in, request to follow devices, and — once the device
+owners approve in the app — watch everyone on one live map.
 
-The only place a web user receives coordinates is ``GET /api/location/{device_id}``, and only
-when they hold an ``approved`` follow for that device.
+The only places a web user receives coordinates are ``GET /api/locations`` (all approved
+follows at once, for the shared map) and the legacy ``GET /api/location/{device_id}``; both
+hand out a device's position only under an ``approved`` follow.
 """
 
 from __future__ import annotations
@@ -155,21 +156,65 @@ def _approved_follow(user_id: int, device_id: str):
     )
 
 
-@router.get("/map/{device_id}")
-def map_page(request: Request, device_id: str, user=Depends(require_web_user)):
-    """The live map page for a device the user is approved to follow."""
-    if _approved_follow(user["id"], device_id) is None:
-        raise HTTPException(status_code=403, detail="You are not approved to follow this device")
-    device = db.query_one("SELECT * FROM devices WHERE id = ?", (device_id,))
-    label = (device["label"] if device else "") or device_id[:8]
-    return templates.TemplateResponse(
-        request, "map.html", {"device_id": device_id, "label": label},
+def _approved_devices(user_id: int):
+    """Every device the user holds an approved follow for, with its stored label.
+
+    :param user_id: the web user's id.
+    :return: rows of (device id, label), ordered by label.
+    """
+    return db.query(
+        "SELECT d.id, d.label FROM follows f JOIN devices d ON d.id = f.device_id "
+        "WHERE f.web_user_id = ? AND f.status = 'approved' "
+        "ORDER BY COALESCE(NULLIF(d.label, ''), d.id)",
+        (user_id,),
     )
+
+
+@router.get("/map")
+def combined_map_page(request: Request, user=Depends(require_web_user)):
+    """One live map with every device the user is approved to follow."""
+    devices = [
+        {"id": d["id"], "label": d["label"] or d["id"][:8]}
+        for d in _approved_devices(user["id"])
+    ]
+    return templates.TemplateResponse(request, "map.html", {"devices": devices})
+
+
+@router.get("/map/{device_id}")
+def map_page(device_id: str, user=Depends(require_web_user)):
+    """Old per-device map URL; everyone now shares one map."""
+    return RedirectResponse("/map", status_code=303)
+
+
+@router.get("/api/locations")
+def api_locations(user=Depends(require_web_user)):
+    """Latest positions of every device the user is approved to follow, for the map's poll.
+
+    Devices without a fresh position are still listed (with null coordinates) so the map's
+    legend can show them as offline instead of silently dropping them.
+
+    :param user: the signed-in web user (injected).
+    :return: ``{"devices": [{id, label, lat, lon, time, online}, ...]}``.
+    """
+    result = []
+    for device in _approved_devices(user["id"]):
+        entry = positions.latest(device["id"])
+        result.append(
+            {
+                "id": device["id"],
+                "label": device["label"] or device["id"][:8],
+                "lat": entry["lat"] if entry else None,
+                "lon": entry["lon"] if entry else None,
+                "time": entry["time"] if entry else None,
+                "online": entry is not None,
+            },
+        )
+    return {"devices": result}
 
 
 @router.get("/api/location/{device_id}")
 def api_location(device_id: str, user=Depends(require_web_user)):
-    """Return a followed device's latest position (JSON), for the map page's poll.
+    """Return a followed device's latest position (JSON); kept for older bookmarks.
 
     :param device_id: the device id.
     :param user: the signed-in web user (injected).
