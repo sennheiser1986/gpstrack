@@ -31,6 +31,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import io.github.sennheiser1986.gpstrack.data.ActivityType
 import io.github.sennheiser1986.gpstrack.data.ExportFormat
 import io.github.sennheiser1986.gpstrack.data.Track
 import io.github.sennheiser1986.gpstrack.data.TrackPoint
@@ -46,6 +50,7 @@ import io.github.sennheiser1986.gpstrack.data.TrackStatistics
  * @param onRename invoked with a new name.
  * @param onDelete invoked when the reader confirms deletion.
  * @param onExport invoked with the chosen format.
+ * @param onSetActivityType invoked when the reader reclassifies the track.
  * @param offlineMapReady whether the downloaded offline map should be used.
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -57,6 +62,7 @@ fun TrackDetailScreen(
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
     onExport: (ExportFormat) -> Unit,
+    onSetActivityType: (ActivityType) -> Unit = {},
     offlineMapReady: Boolean = false,
 ) {
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -108,7 +114,14 @@ fun TrackDetailScreen(
                     Icon(Icons.Filled.Delete, contentDescription = "Delete")
                 }
             }
-            Text(formatDateTime(track.startedAtMillis), style = MaterialTheme.typography.bodyMedium)
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text(
+                    formatDateTime(track.startedAtMillis),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                ActivityTypeChip(track.activity, onSetActivityType)
+            }
 
             Card(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
                 FlowRow(
@@ -120,11 +133,17 @@ fun TrackDetailScreen(
                     StatCell("Moving time", formatDuration(statistics.movingDurationMillis))
                     StatCell("Total time", formatDuration(statistics.totalDurationMillis))
                     StatCell("Climb", "%.0f m".format(statistics.elevationGainMeters))
-                    StatCell("Avg speed", formatSpeed(statistics.averageMovingSpeedMetersPerSecond))
+                    if (track.activity.usesPace) {
+                        StatCell("Avg pace", formatPace(statistics.averageMovingSpeedMetersPerSecond))
+                    } else {
+                        StatCell("Avg speed", formatSpeed(statistics.averageMovingSpeedMetersPerSecond))
+                    }
                     StatCell("Max speed", formatSpeed(statistics.maxSpeedMetersPerSecond))
                     StatCell("Points", track.pointCount.takeIf { it > 0 }?.toString() ?: points.size.toString())
                 }
             }
+
+            TrackProfiles(points)
 
             Text(
                 "Export",
@@ -168,6 +187,34 @@ fun TrackDetailScreen(
                 TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/**
+ * The activity-type chip: shows the current type and opens a menu to reclassify the track.
+ *
+ * @param current the track's activity type.
+ * @param onSelect invoked with the new type.
+ */
+@Composable
+private fun ActivityTypeChip(current: ActivityType, onSelect: (ActivityType) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    androidx.compose.foundation.layout.Box {
+        AssistChip(
+            onClick = { open = true },
+            label = { Text("${current.symbol} ${current.displayName}") },
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            ActivityType.entries.forEach { type ->
+                DropdownMenuItem(
+                    text = { Text("${type.symbol} ${type.displayName}") },
+                    onClick = {
+                        onSelect(type)
+                        open = false
+                    },
+                )
+            }
+        }
     }
 }
 

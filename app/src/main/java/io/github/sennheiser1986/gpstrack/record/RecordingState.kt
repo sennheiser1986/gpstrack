@@ -1,6 +1,8 @@
 package io.github.sennheiser1986.gpstrack.record
 
 import io.github.sennheiser1986.gpstrack.data.LatLon
+import io.github.sennheiser1986.gpstrack.data.TrackStatistics
+import io.github.sennheiser1986.gpstrack.data.haversineMeters
 import io.github.sennheiser1986.gpstrack.data.totalDistanceMeters
 import io.github.sennheiser1986.gpstrack.data.TrackPoint
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +48,17 @@ object RecordingState {
     /** Start time of the active track, or null when the recorder is stopped. */
     val startedAtMillis: StateFlow<Long?> = _startedAtMillis.asStateFlow()
 
+    private val _liveMovingMillis = MutableStateFlow(0L)
+
+    /**
+     * Auto-paused clock: time spent actually moving, summed over legs whose speed clears the
+     * moving threshold. Standing at a light adds nothing here while the total clock runs on.
+     */
+    val liveMovingMillis: StateFlow<Long> = _liveMovingMillis.asStateFlow()
+
+    /** The previous accepted fix, for leg speed; not exposed. */
+    private var lastPoint: TrackPoint? = null
+
     /** True while a track is being recorded. */
     val isRecording: Boolean get() = _activeTrackId.value != null
 
@@ -69,14 +82,29 @@ object RecordingState {
         _startedAtMillis.value = startedAtMillis
         _liveTrail.value = emptyList()
         _liveDistanceMeters.value = 0.0
+        _liveMovingMillis.value = 0L
+        lastPoint = null
     }
 
     /**
-     * Appends a fix to the live trail and updates the running distance and current location.
+     * Appends a fix to the live trail and updates the running distance, the moving clock and
+     * the current location.
      *
      * @param point the fix just stored for the active track.
      */
     fun appendRecordedPoint(point: TrackPoint) {
+        val previous = lastPoint
+        if (previous != null) {
+            val legMillis = point.timestampMillis - previous.timestampMillis
+            val legMeters = haversineMeters(
+                previous.latitude, previous.longitude, point.latitude, point.longitude,
+            )
+            val legSpeed = if (legMillis > 0) legMeters / (legMillis / 1000.0) else 0.0
+            if (legSpeed >= TrackStatistics.MOVING_SPEED_THRESHOLD_MPS && legMillis > 0) {
+                _liveMovingMillis.update { it + legMillis }
+            }
+        }
+        lastPoint = point
         _liveTrail.update { it + point.toLatLon() }
         _liveDistanceMeters.value = totalDistanceMetersOfLatLon(_liveTrail.value)
         updateCurrentLocation(point.toLatLon())
@@ -88,6 +116,8 @@ object RecordingState {
         _startedAtMillis.value = null
         _liveTrail.value = emptyList()
         _liveDistanceMeters.value = 0.0
+        _liveMovingMillis.value = 0L
+        lastPoint = null
     }
 
     /**

@@ -3,7 +3,11 @@ package io.github.sennheiser1986.gpstrack
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.sennheiser1986.gpstrack.data.ActivityType
+import io.github.sennheiser1986.gpstrack.data.BackupCodec
+import io.github.sennheiser1986.gpstrack.data.BackupTrack
 import io.github.sennheiser1986.gpstrack.data.ExportFormat
+import io.github.sennheiser1986.gpstrack.data.GpxImporter
 import io.github.sennheiser1986.gpstrack.data.Track
 import io.github.sennheiser1986.gpstrack.data.TrackExporter
 import io.github.sennheiser1986.gpstrack.data.TrackPoint
@@ -14,6 +18,7 @@ import io.github.sennheiser1986.gpstrack.map.OfflineMapDownloadWorker
 import io.github.sennheiser1986.gpstrack.map.OfflineMapRepository
 import io.github.sennheiser1986.gpstrack.map.OfflineMapState
 import io.github.sennheiser1986.gpstrack.record.LocationRecordingService
+import io.github.sennheiser1986.gpstrack.record.RecordPreferences
 import io.github.sennheiser1986.gpstrack.record.RecordingState
 import io.github.sennheiser1986.gpstrack.share.FollowRequestDirectory
 import io.github.sennheiser1986.gpstrack.share.LocationShareService
@@ -59,6 +64,7 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     private val repository = (application as TrackRecorderApp).repository
     private val sharePreferences = SharePreferences(application)
     private val peersStore = PeersStore(application)
+    private val recordPreferences = RecordPreferences(application)
 
     /** This install's permanent sharing id. */
     val instanceId: String = sharePreferences.instanceId()
@@ -105,8 +111,21 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     /** Distance of the active recording in metres. */
     val liveDistanceMeters = RecordingState.liveDistanceMeters
 
+    /** Auto-paused moving time of the active recording, in milliseconds. */
+    val liveMovingMillis = RecordingState.liveMovingMillis
+
     /** Start time of the active recording, or null. */
     val recordingStartedAtMillis = RecordingState.startedAtMillis
+
+    private val _activityType = MutableStateFlow(recordPreferences.lastActivityType())
+
+    /** The activity type the next recording will be stored as. */
+    val activityType: StateFlow<ActivityType> = _activityType.asStateFlow()
+
+    private val _userMessage = MutableStateFlow<String?>(null)
+
+    /** A one-shot message (import/backup results) for the activity to toast, or null. */
+    val userMessage: StateFlow<String?> = _userMessage.asStateFlow()
 
     /** The latest known position of this device. */
     val currentLocation = RecordingState.currentLocation
@@ -254,12 +273,26 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     // --- Recording actions ---------------------------------------------------------------
 
     /**
-     * Starts recording a new track.
+     * Picks the activity type for the next recording and remembers it as the default.
+     *
+     * @param type the chosen type.
+     */
+    fun setActivityType(type: ActivityType) {
+        recordPreferences.setLastActivityType(type)
+        _activityType.value = type
+    }
+
+    /**
+     * Starts recording a new track with the currently selected activity type.
      *
      * @param name reader-chosen name, or null to name it after the current time.
      */
     fun startRecording(name: String?) {
-        LocationRecordingService.start(getApplication(), name?.takeIf { it.isNotBlank() })
+        LocationRecordingService.start(
+            getApplication(),
+            name?.takeIf { it.isNotBlank() },
+            _activityType.value,
+        )
     }
 
     /** Stops the current recording; an empty track is discarded by the service. */
@@ -325,6 +358,99 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     /** Clears [pendingExport] once the file has been written or the picker was cancelled. */
     fun exportHandled() {
         _pendingExport.value = null
+    }
+
+    /**
+     * Reclassifies a track's activity type.
+     *
+     * @param trackId the track to change.
+     * @param type the new type.
+     */
+    fun setTrackActivityType(trackId: Long, type: ActivityType) {
+        viewModelScope.launch { repository.setActivityType(trackId, type) }
+    }
+
+    /**
+     * Imports the tracks in a GPX file.
+     *
+     * @param content the file bytes as read from the picker.
+     * @param fallbackName name to use when the file carries none (usually the file name).
+     */
+    fun importGpx(content: ByteArray, fallbackName: String) {
+        viewModelScope.launch {
+            val imported = GpxImporter.parse(content.inputStream())
+            if (imported == null) {
+                _userMessage.value = "That file is not a readable GPX track"
+                return@launch
+            }
+            repository.importTrack(
+                name = imported.name ?: fallbackName,
+                activityType = _activityType.value,
+                points = imported.points,
+            )
+            _userMessage.value = "Imported ${imported.points.size} points"
+        }
+    }
+
+    /**
+     * Prepares a backup of the whole database and raises [pendingExport] so the activity can
+     * open the document picker.
+     */
+    fun requestBackup() {
+        viewModelScope.launch {
+            val tracks = repository.allTracksOnce().filter { !it.isRecording }
+            val entries = tracks.map { BackupTrack(it, repository.pointsOnce(it.id)) }
+            val date = java.time.LocalDate.now()
+            _pendingExport.value = PendingExport(
+                fileName = "gpstrack-backup-%04d%02d%02d.json".format(
+                    date.year, date.monthValue, date.dayOfMonth,
+                ),
+                mimeType = "application/json",
+                content = BackupCodec.encode(entries),
+            )
+        }
+    }
+
+    /**
+     * Restores tracks from a backup file, skipping tracks that already exist (same name and
+     * start time).
+     *
+     * @param content the file text as read from the picker.
+     */
+    fun restoreBackup(content: String) {
+        viewModelScope.launch {
+            val entries = BackupCodec.decode(content)
+            if (entries == null) {
+                _userMessage.value = "That file is not a GPS Track backup"
+                return@launch
+            }
+            // importTrack stores the first fix's time as the start, so that is the stable
+            // identity a restored track keeps across repeated restores.
+            val existing = repository.allTracksOnce()
+                .map { it.name to it.startedAtMillis }
+                .toHashSet()
+            var imported = 0
+            entries.forEach { entry ->
+                val key = entry.track.name to entry.points.first().timestampMillis
+                if (key in existing) return@forEach
+                repository.importTrack(
+                    name = entry.track.name,
+                    activityType = entry.track.activity,
+                    points = entry.points,
+                )
+                imported++
+            }
+            _userMessage.value = when {
+                imported == 0 -> "Nothing to restore — all ${entries.size} tracks already present"
+                imported < entries.size -> "Restored $imported tracks (${entries.size - imported} already present)"
+                else -> "Restored $imported tracks"
+            }
+        }
+    }
+
+    /** Clears [userMessage] once it has been shown. */
+    fun userMessageShown() {
+        _userMessage.value = null
     }
 
     // --- Sharing actions --------------------------------------------------------------

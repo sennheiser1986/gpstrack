@@ -4,8 +4,11 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.drawable.BitmapDrawable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -19,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -194,6 +198,16 @@ fun TrackMapView(
         onDispose { mapView.onPause() }
     }
 
+    // In dark theme, render the (light) tiles through an inverting, desaturating colour filter
+    // so the map does not glare. Applies to online tiles and the offline map alike.
+    val darkTheme = isSystemInDarkTheme()
+    LaunchedEffect(darkTheme) {
+        mapView.overlayManager.tilesOverlay.setColorFilter(
+            if (darkTheme) darkTileFilter() else null,
+        )
+        mapView.invalidate()
+    }
+
     // Pick the tile source: the offline vector map when it is present, otherwise online OSM.
     LaunchedEffect(offlineReady) {
         val offline = if (offlineReady) OfflineMap.tileProvider(context) else null
@@ -213,7 +227,9 @@ fun TrackMapView(
         }
     }
 
-    Box(modifier) {
+    // osmdroid draws tiles beyond the view bounds; without clipping the map bleeds over
+    // whatever is laid out after it (seen under the 320 dp detail map).
+    Box(modifier.clipToBounds()) {
       AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { mapView },
@@ -274,6 +290,26 @@ fun TrackMapView(
           }
       }
     }
+}
+
+/**
+ * Builds the dark-theme tile filter: invert the tiles, then pull saturation down so the
+ * inverted hues (orange water, blue fields) fade into a muted night palette.
+ *
+ * @return the colour filter to set on the tiles overlay.
+ */
+private fun darkTileFilter(): ColorMatrixColorFilter {
+    val inversion = ColorMatrix(
+        floatArrayOf(
+            -1f, 0f, 0f, 0f, 255f,
+            0f, -1f, 0f, 0f, 255f,
+            0f, 0f, -1f, 0f, 255f,
+            0f, 0f, 0f, 1f, 0f,
+        ),
+    )
+    val desaturation = ColorMatrix().apply { setSaturation(0.3f) }
+    desaturation.preConcat(inversion)
+    return ColorMatrixColorFilter(desaturation)
 }
 
 /**

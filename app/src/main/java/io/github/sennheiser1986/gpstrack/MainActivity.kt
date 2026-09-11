@@ -56,6 +56,38 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.delay
 
+/**
+ * Reports whether the app is already excluded from battery optimisation.
+ *
+ * @param context any context.
+ * @return true when the system will not doze-kill the app's services.
+ */
+private fun isBatteryExempt(context: android.content.Context): Boolean {
+    val manager = context.getSystemService(android.content.Context.POWER_SERVICE)
+        as? android.os.PowerManager ?: return true
+    return manager.isIgnoringBatteryOptimizations(context.packageName)
+}
+
+/**
+ * Opens the system dialog asking to exclude the app from battery optimisation.
+ *
+ * @param context an activity context.
+ */
+private fun requestBatteryExemption(context: android.content.Context) {
+    val intent = Intent(
+        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+        Uri.parse("package:${context.packageName}"),
+    )
+    runCatching { context.startActivity(intent) }.onFailure {
+        // Some builds hide the direct dialog; fall back to the list screen.
+        runCatching {
+            context.startActivity(
+                Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            )
+        }
+    }
+}
+
 /** The tabs the app is divided into. */
 private enum class AppTab(
     /** Wording shown under the tab icon. */
@@ -168,8 +200,10 @@ private fun TrackRecorderRoot(
     val activeTrackId by viewModel.activeTrackId.collectAsStateWithLifecycle()
     val liveTrail by viewModel.liveTrail.collectAsStateWithLifecycle()
     val liveDistanceMeters by viewModel.liveDistanceMeters.collectAsStateWithLifecycle()
+    val liveMovingMillis by viewModel.liveMovingMillis.collectAsStateWithLifecycle()
     val recordingStartedAtMillis by viewModel.recordingStartedAtMillis.collectAsStateWithLifecycle()
     val currentLocation by viewModel.currentLocation.collectAsStateWithLifecycle()
+    val activityType by viewModel.activityType.collectAsStateWithLifecycle()
 
     val broadcasting by viewModel.broadcasting.collectAsStateWithLifecycle()
     val displayName by viewModel.displayName.collectAsStateWithLifecycle()
@@ -317,6 +351,64 @@ private fun TrackRecorderRoot(
         pendingExport?.let { exportLauncher.launch(it.fileName) }
     }
 
+    // Pick a GPX file and import it as a new track.
+    val importGpxLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val bytes = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        }.getOrNull()
+        if (bytes == null) {
+            Toast.makeText(context, "Could not read that file", Toast.LENGTH_SHORT).show()
+        } else {
+            val fallbackName = uri.lastPathSegment
+                ?.substringAfterLast('/')
+                ?.removeSuffix(".gpx")
+                ?.takeIf { it.isNotBlank() }
+                ?: "Imported track"
+            viewModel.importGpx(bytes, fallbackName)
+        }
+    }
+
+    // Pick a backup file and restore the tracks it holds.
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val text = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+        }.getOrNull()
+        if (text == null) {
+            Toast.makeText(context, "Could not read that file", Toast.LENGTH_SHORT).show()
+        } else {
+            viewModel.restoreBackup(text)
+        }
+    }
+
+    // Toast one-shot results (imports, restores) raised by the view model.
+    val userMessage by viewModel.userMessage.collectAsStateWithLifecycle()
+    LaunchedEffect(userMessage) {
+        userMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.userMessageShown()
+        }
+    }
+
+    // Whether the app is excluded from battery optimisation; refreshed on every resume so
+    // returning from the system dialog updates the Manual tab card.
+    var batteryExempt by remember { mutableStateOf(isBatteryExempt(context)) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                batteryExempt = isBatteryExempt(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val isRecording = activeTrackId != null
     val openTrack = selectedTrack.takeIf { selectedTrackId != null }
 
@@ -361,6 +453,7 @@ private fun TrackRecorderRoot(
                     onRename = { viewModel.renameTrack(openTrack.id, it) },
                     onDelete = { viewModel.deleteTrack(openTrack.id) },
                     onExport = { viewModel.requestExport(it) },
+                    onSetActivityType = { viewModel.setTrackActivityType(openTrack.id, it) },
                     offlineMapReady = offlineMapReady,
                 )
             }
@@ -374,7 +467,10 @@ private fun TrackRecorderRoot(
                     liveTrail = liveTrail,
                     currentLocation = currentLocation,
                     liveDistanceMeters = liveDistanceMeters,
+                    liveMovingMillis = liveMovingMillis,
                     startedAtMillis = recordingStartedAtMillis,
+                    activityType = activityType,
+                    onActivityTypeChange = { viewModel.setActivityType(it) },
                     onStart = { name ->
                         when {
                             !hasForegroundLocationPermission() -> requestForegroundLocation()
@@ -399,6 +495,9 @@ private fun TrackRecorderRoot(
                 AppTab.TRACKS -> TracksScreen(
                     tracks = tracks,
                     onOpen = { viewModel.openTrack(it) },
+                    onImportGpx = {
+                        importGpxLauncher.launch(arrayOf("application/gpx+xml", "application/xml", "text/xml", "application/octet-stream"))
+                    },
                 )
 
                 AppTab.MAP -> MapScreen(
@@ -453,6 +552,10 @@ private fun TrackRecorderRoot(
                     onDownloadOfflineMap = { viewModel.downloadOfflineMap() },
                     onCancelOfflineMap = { viewModel.cancelOfflineMapDownload() },
                     onDeleteOfflineMap = { viewModel.deleteOfflineMap() },
+                    batteryExempt = batteryExempt,
+                    onRequestBatteryExemption = { requestBatteryExemption(context) },
+                    onBackup = { viewModel.requestBackup() },
+                    onRestore = { restoreBackupLauncher.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) },
                 )
             }
         }

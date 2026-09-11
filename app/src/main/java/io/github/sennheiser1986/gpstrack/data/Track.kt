@@ -15,6 +15,7 @@ import androidx.room.PrimaryKey
  * @property distanceMeters ground distance summed over the points, valid once [endedAtMillis] is set.
  * @property elevationGainMeters total climb over the points, valid once [endedAtMillis] is set.
  * @property pointCount number of stored fixes, valid once [endedAtMillis] is set.
+ * @property activityType the [ActivityType] name chosen when recording started.
  */
 @Entity(tableName = "tracks")
 data class Track(
@@ -25,9 +26,13 @@ data class Track(
     val distanceMeters: Double = 0.0,
     val elevationGainMeters: Double = 0.0,
     val pointCount: Int = 0,
+    val activityType: String = ActivityType.WALK.name,
 ) {
     /** True while the recorder is still adding fixes to this track. */
     val isRecording: Boolean get() = endedAtMillis == null
+
+    /** The parsed [activityType], falling back to walking for unknown values. */
+    val activity: ActivityType get() = ActivityType.from(activityType)
 
     /** Wall-clock length of the track in milliseconds, or 0 while it is still recording. */
     val durationMillis: Long get() = (endedAtMillis ?: startedAtMillis) - startedAtMillis

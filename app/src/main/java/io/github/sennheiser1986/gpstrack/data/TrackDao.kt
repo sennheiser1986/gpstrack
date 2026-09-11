@@ -45,6 +45,14 @@ interface TrackDao {
     suspend fun insertPoint(point: TrackPoint): Long
 
     /**
+     * Inserts many fixes at once, used by GPX import and backup restore.
+     *
+     * @param points the fixes to store; their ids are ignored.
+     */
+    @Insert
+    suspend fun insertPoints(points: List<TrackPoint>)
+
+    /**
      * Streams every track, newest first, so the list updates as recording progresses.
      *
      * @return a flow that emits the full ordered list on every change.
@@ -77,6 +85,14 @@ interface TrackDao {
      */
     @Query("SELECT * FROM tracks WHERE endedAtMillis IS NULL")
     suspend fun openTracks(): List<Track>
+
+    /**
+     * Reads every track once, oldest first, for backups.
+     *
+     * @return all tracks ordered by start time.
+     */
+    @Query("SELECT * FROM tracks ORDER BY startedAtMillis ASC")
+    suspend fun allTracks(): List<Track>
 
     /**
      * Reads every fix of a track in recording order.

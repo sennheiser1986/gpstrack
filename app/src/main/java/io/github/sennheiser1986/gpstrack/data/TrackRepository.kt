@@ -42,10 +42,66 @@ class TrackRepository(private val dao: TrackDao) {
      *
      * @param name reader-visible name.
      * @param startedAtMillis start time in milliseconds since the epoch.
+     * @param activityType what kind of outing this is.
      * @return the new track's id.
      */
-    suspend fun startTrack(name: String, startedAtMillis: Long): Long =
-        dao.insertTrack(Track(name = name, startedAtMillis = startedAtMillis))
+    suspend fun startTrack(
+        name: String,
+        startedAtMillis: Long,
+        activityType: ActivityType = ActivityType.WALK,
+    ): Long =
+        dao.insertTrack(
+            Track(name = name, startedAtMillis = startedAtMillis, activityType = activityType.name),
+        )
+
+    /**
+     * Changes a track's activity type after the fact.
+     *
+     * @param trackId the track to change.
+     * @param activityType the new type.
+     */
+    suspend fun setActivityType(trackId: Long, activityType: ActivityType) {
+        val track = dao.findTrack(trackId) ?: return
+        dao.updateTrack(track.copy(activityType = activityType.name))
+    }
+
+    /**
+     * Stores a complete, already-finished track — a GPX import or a backup restore. The summary
+     * fields are computed here from the given points.
+     *
+     * @param name reader-visible name.
+     * @param activityType what kind of outing this is.
+     * @param points the ordered fixes; must not be empty.
+     * @return the new track's id, or null when [points] is empty.
+     */
+    suspend fun importTrack(
+        name: String,
+        activityType: ActivityType,
+        points: List<TrackPoint>,
+    ): Long? {
+        if (points.isEmpty()) return null
+        val statistics = computeStatistics(points)
+        val id = dao.insertTrack(
+            Track(
+                name = name,
+                startedAtMillis = points.first().timestampMillis,
+                endedAtMillis = points.last().timestampMillis,
+                distanceMeters = statistics.distanceMeters,
+                elevationGainMeters = statistics.elevationGainMeters,
+                pointCount = points.size,
+                activityType = activityType.name,
+            ),
+        )
+        dao.insertPoints(points.map { it.copy(id = 0, trackId = id) })
+        return id
+    }
+
+    /**
+     * Reads every track once, oldest first, for building a backup.
+     *
+     * @return all tracks.
+     */
+    suspend fun allTracksOnce(): List<Track> = dao.allTracks()
 
     /**
      * Stores one fix for a track. Summary fields are recomputed when the track is finished, so

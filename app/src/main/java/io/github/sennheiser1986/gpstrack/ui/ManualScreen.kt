@@ -28,6 +28,10 @@ import io.github.sennheiser1986.gpstrack.map.OfflineMapState
  * @param onDownloadOfflineMap start (or resume) the offline-map download.
  * @param onCancelOfflineMap cancel an in-progress download.
  * @param onDeleteOfflineMap remove the offline map and go back to online tiles.
+ * @param batteryExempt whether the app is already excluded from battery optimisation.
+ * @param onRequestBatteryExemption open the system dialog asking for the exclusion.
+ * @param onBackup export every track to a single backup file.
+ * @param onRestore pick a backup file and import the tracks it holds.
  */
 @Composable
 fun ManualScreen(
@@ -35,6 +39,10 @@ fun ManualScreen(
     onDownloadOfflineMap: () -> Unit = {},
     onCancelOfflineMap: () -> Unit = {},
     onDeleteOfflineMap: () -> Unit = {},
+    batteryExempt: Boolean = true,
+    onRequestBatteryExemption: () -> Unit = {},
+    onBackup: () -> Unit = {},
+    onRestore: () -> Unit = {},
 ) {
     Column(
         Modifier
@@ -43,16 +51,27 @@ fun ManualScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        if (!batteryExempt) {
+            BatteryCard(onRequestBatteryExemption)
+        }
+
         OfflineMapCard(offlineMapState, onDownloadOfflineMap, onCancelOfflineMap, onDeleteOfflineMap)
+
+        BackupCard(onBackup, onRestore)
 
         Section(
             "Recording a track",
-            "The Record tab captures a track using the device's GPS. Recording continues while " +
-                "the app is in the background and while the screen is off, shown by an ongoing " +
-                "notification. Grant \"Allow all the time\" location access for background " +
-                "recording to keep working; \"While using the app\" stops the track when the " +
-                "app is dismissed. Fixes are taken about every three seconds and at least four " +
-                "metres apart, so a stationary device stops adding points.",
+            "The Record tab captures a track using the device's GPS. Pick the activity type " +
+                "(walk, run, bike, drive) before starting; walking and running show pace, " +
+                "wheels show speed. Recording continues while the app is in the background and " +
+                "while the screen is off, shown by an ongoing notification with the live " +
+                "distance and time. Grant \"Allow all the time\" location access for " +
+                "background recording to keep working; \"While using the app\" stops the track " +
+                "when the app is dismissed. Fixes are taken about every three seconds and at " +
+                "least four metres apart; fixes with poor accuracy or impossible jumps are " +
+                "discarded. The \"Moving\" clock pauses automatically while you stand still. " +
+                "Quick Settings tiles for recording and broadcasting can be added from the " +
+                "notification shade's tile editor.",
         )
         Section(
             "The database",
@@ -60,10 +79,13 @@ fun ManualScreen(
                 "uploaded. Deleting a track removes it and its points permanently.",
         )
         Section(
-            "Exporting",
+            "Exporting and importing",
             "From a track's detail screen, choose GPX, KML or GeoJSON. GPX is the widest " +
                 "interchange format; KML opens in Google Earth; GeoJSON suits web maps and GIS " +
-                "tools. The system file picker chooses where the file is saved.",
+                "tools. The system file picker chooses where the file is saved. The Tracks " +
+                "tab's import button reads a GPX file recorded elsewhere into the database; " +
+                "it is stored under the currently selected activity type. The Backup card " +
+                "above saves every track to one file and restores from it.",
         )
         Section(
             "Offline map",
@@ -104,6 +126,65 @@ fun ManualScreen(
                 "after you stop. Treat the QR code as a secret: anyone who scans it can see " +
                 "where you are while you broadcast.",
         )
+    }
+}
+
+/**
+ * A warning card shown while the app is still subject to battery optimisation, which on many
+ * devices kills long recordings with the screen off.
+ *
+ * @param onRequest open the system exemption dialog.
+ */
+@Composable
+private fun BatteryCard(onRequest: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                "Battery optimisation",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "This device may stop long recordings while the screen is off. Excluding the " +
+                    "app from battery optimisation keeps recording and sharing running.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(onClick = onRequest) { Text("Exclude from optimisation") }
+        }
+    }
+}
+
+/**
+ * The backup/restore controls: everything in the database to one file, and back.
+ *
+ * @param onBackup start the backup export.
+ * @param onRestore pick a backup file to import.
+ */
+@Composable
+private fun BackupCard(onBackup: () -> Unit, onRestore: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                "Backup",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "Save every track to a single file, or bring tracks back from a backup. " +
+                    "Restoring skips tracks that are already present.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = onBackup) { Text("Back up") }
+                OutlinedButton(onClick = onRestore) { Text("Restore") }
+            }
+        }
     }
 }
 

@@ -143,4 +143,7 @@ dependencies {
     implementation(libs.zxing.android.embedded)
 
     testImplementation("junit:junit:4.13.2")
+    // The android.jar org.json stubs throw at test time; this is the real implementation for
+    // the JVM test classpath (BackupCodec tests).
+    testImplementation("org.json:json:20240303")
 }

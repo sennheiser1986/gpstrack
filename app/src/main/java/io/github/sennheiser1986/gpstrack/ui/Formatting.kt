@@ -44,6 +44,18 @@ fun formatDuration(millis: Long): String {
 fun formatSpeed(metersPerSecond: Double): String = "%.1f km/h".format(metersPerSecond * 3.6)
 
 /**
+ * Formats a speed as a pace in minutes per kilometre, the natural unit for walking and running.
+ *
+ * @param metersPerSecond the speed.
+ * @return e.g. "5:42 /km", or "–" for a speed too slow to express.
+ */
+fun formatPace(metersPerSecond: Double): String {
+    if (metersPerSecond < 0.1) return "–"
+    val secondsPerKm = (1_000.0 / metersPerSecond).toLong()
+    return "%d:%02d /km".format(secondsPerKm / 60, secondsPerKm % 60)
+}
+
+/**
  * Formats a wall-clock instant using the device locale.
  *
  * @param epochMillis milliseconds since the Unix epoch.

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,18 +28,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.sennheiser1986.gpstrack.data.ActivityType
 import io.github.sennheiser1986.gpstrack.data.LatLon
 import kotlinx.coroutines.delay
 
 /**
- * The Record tab: a live map of the current trail with a start/stop control and running
- * distance and time.
+ * The Record tab: a live map of the current trail with an activity-type picker, a start/stop
+ * control and running distance, total time and moving time.
  *
  * @param isRecording whether a track is currently being recorded.
  * @param liveTrail the fixes recorded so far.
  * @param currentLocation the latest known position, for centring before recording starts.
  * @param liveDistanceMeters distance of [liveTrail] in metres.
+ * @param liveMovingMillis time spent actually moving, for the auto-paused clock.
  * @param startedAtMillis start time of the recording, or null.
+ * @param activityType the type the next recording will be stored as.
+ * @param onActivityTypeChange invoked when the reader picks a different type.
  * @param onStart invoked with an optional name when the reader starts recording.
  * @param onStop invoked when the reader stops recording.
  * @param offlineMapReady whether the downloaded offline map should be used.
@@ -49,7 +54,10 @@ fun RecordScreen(
     liveTrail: List<LatLon>,
     currentLocation: LatLon?,
     liveDistanceMeters: Double,
+    liveMovingMillis: Long,
     startedAtMillis: Long?,
+    activityType: ActivityType,
+    onActivityTypeChange: (ActivityType) -> Unit,
     onStart: (String?) -> Unit,
     onStop: () -> Unit,
     offlineMapReady: Boolean = false,
@@ -90,12 +98,25 @@ fun RecordScreen(
                     if (!isRecording) elapsedMillis = 0L
                 }
 
+                if (!isRecording) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ActivityType.entries.forEach { type ->
+                            FilterChip(
+                                selected = type == activityType,
+                                onClick = { onActivityTypeChange(type) },
+                                label = { Text("${type.symbol} ${type.displayName}") },
+                            )
+                        }
+                    }
+                }
+
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
                     LiveStat("Distance", formatDistance(liveDistanceMeters))
                     LiveStat("Time", formatDuration(elapsedMillis))
+                    LiveStat("Moving", formatDuration(liveMovingMillis))
                 }
 
                 if (isRecording) {
@@ -124,7 +145,7 @@ fun RecordScreen(
 }
 
 /**
- * A label above a value, used for the two live figures.
+ * A label above a value, used for the live figures.
  *
  * @param label the caption.
  * @param value the figure.
@@ -136,7 +157,7 @@ private fun LiveStat(label: String, value: String) {
             Text(label, style = MaterialTheme.typography.labelMedium)
             Text(
                 value,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
             )
         }
