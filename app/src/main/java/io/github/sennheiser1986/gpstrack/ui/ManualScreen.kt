@@ -149,10 +149,12 @@ fun ManualScreen(
             "Each device has a permanent sharing ID shown as a QR code on the Share tab. It is " +
                 "derived from the phone itself (hashed, never exposing the phone's identifiers), " +
                 "so reinstalling the app keeps the same ID and the people following you keep " +
-                "working; only a factory reset changes it. Turn on \"Broadcast my location\" to " +
-                "publish your position to the sharing server. Turn it off and nothing about " +
-                "your position leaves the device. The broadcast also runs from an ongoing " +
-                "notification.",
+                "working; only a factory reset changes it. The sharing server only talks to " +
+                "signed-in devices: enter a server account (created by the server's admin) " +
+                "once under \"Server account\", and the device stays signed in. Turn on " +
+                "\"Broadcast my location\" to publish your position to the sharing server. " +
+                "Turn it off and nothing about your position leaves the device. The broadcast " +
+                "also runs from an ongoing notification.",
         )
         Section(
             "Following other people",

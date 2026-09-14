@@ -37,10 +37,12 @@ CREATE TABLE IF NOT EXISTS web_users (
 );
 
 CREATE TABLE IF NOT EXISTS devices (
-    id         TEXT PRIMARY KEY,
-    label      TEXT NOT NULL DEFAULT '',
-    first_seen REAL NOT NULL,
-    last_seen  REAL NOT NULL
+    id            TEXT PRIMARY KEY,
+    label         TEXT NOT NULL DEFAULT '',
+    first_seen    REAL NOT NULL,
+    last_seen     REAL NOT NULL,
+    owner_user_id INTEGER REFERENCES web_users(id) ON DELETE SET NULL,
+    token_hash    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS follows (
@@ -80,10 +82,20 @@ def connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create any missing tables. Safe to call on every startup."""
+    """Create any missing tables and columns. Safe to call on every startup."""
     with _lock:
         connection = connect()
         connection.executescript(_SCHEMA)
+        # Databases created before device login existed lack the two auth columns on
+        # ``devices``; CREATE TABLE IF NOT EXISTS does not add them, so patch in place.
+        existing = {row["name"] for row in connection.execute("PRAGMA table_info(devices)")}
+        if "owner_user_id" not in existing:
+            connection.execute(
+                "ALTER TABLE devices ADD COLUMN owner_user_id INTEGER "
+                "REFERENCES web_users(id) ON DELETE SET NULL",
+            )
+        if "token_hash" not in existing:
+            connection.execute("ALTER TABLE devices ADD COLUMN token_hash TEXT")
         connection.commit()
 
 

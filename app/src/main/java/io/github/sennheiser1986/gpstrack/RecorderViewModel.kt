@@ -140,6 +140,19 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     /** Whether this device is publishing its position. */
     val broadcasting: StateFlow<Boolean> = _broadcasting.asStateFlow()
 
+    private val _accountName = MutableStateFlow(sharePreferences.accountName())
+
+    /** The server account this device is signed in with, or null. */
+    val accountName: StateFlow<String?> = _accountName.asStateFlow()
+
+    /** True when the server rejected the device's token and a (re-)sign-in is needed. */
+    val authRequired = io.github.sennheiser1986.gpstrack.share.ShareAuthState.authRequired
+
+    private val _signingIn = MutableStateFlow(false)
+
+    /** True while a server sign-in attempt is running. */
+    val signingIn: StateFlow<Boolean> = _signingIn.asStateFlow()
+
     private val _displayName = MutableStateFlow(sharePreferences.displayName())
 
     /** The name peers see for this device. */
@@ -512,6 +525,54 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     }
 
     // --- Sharing actions --------------------------------------------------------------
+
+    /**
+     * Signs this device in with a web-user account on the sharing server. On success the
+     * minted token is stored, the "sign in required" flag clears, and the sharing service is
+     * kicked so a pending broadcast resumes immediately.
+     *
+     * @param username the account name.
+     * @param password the account password; used once, never stored.
+     */
+    fun serverSignIn(username: String, password: String) {
+        if (username.isBlank() || password.isBlank() || _signingIn.value) return
+        _signingIn.value = true
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val result = runCatching {
+                io.github.sennheiser1986.gpstrack.share.LocationShareClient.login(
+                    sharePreferences.serverUrl(),
+                    username.trim(),
+                    password,
+                    instanceId,
+                    sharePreferences.displayName(),
+                )
+            }
+            _signingIn.value = false
+            result.fold(
+                onSuccess = { token ->
+                    if (token == null) {
+                        _userMessage.value = "Wrong username or password"
+                    } else {
+                        sharePreferences.setSignIn(token, username.trim())
+                        _accountName.value = username.trim()
+                        io.github.sennheiser1986.gpstrack.share.ShareAuthState.accept()
+                        _userMessage.value = "Signed in as ${username.trim()}"
+                        refreshSharingService()
+                    }
+                },
+                onFailure = {
+                    _userMessage.value = "Could not reach the sharing server"
+                },
+            )
+        }
+    }
+
+    /** Forgets the server sign-in; syncing stops working until the next sign-in. */
+    fun serverSignOut() {
+        sharePreferences.setSignIn(null, null)
+        _accountName.value = null
+        LocationShareService.stop(getApplication())
+    }
 
     /**
      * Turns the position broadcast on or off and updates the sharing service.

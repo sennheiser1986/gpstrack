@@ -8,10 +8,11 @@ hand out a device's position only under an ``approved`` follow.
 
 from __future__ import annotations
 
+import os
 import time
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 import db
 import positions
@@ -20,6 +21,39 @@ from passwords import hash_password, verify_password
 from templating import templates
 
 router = APIRouter()
+
+#: Where the downloadable Android APK is dropped (next to the code by default). The routes
+#: only appear to work when the file actually exists; copying a new APK there is the whole
+#: release process.
+APK_PATH = os.environ.get(
+    "GPSTRACK_APK", os.path.join(os.path.dirname(os.path.abspath(__file__)), "apk", "gpstrack.apk"),
+)
+
+
+def apk_available() -> bool:
+    """Whether a downloadable APK is present on this server.
+
+    :return: True when the file at :data:`APK_PATH` exists.
+    """
+    return os.path.isfile(APK_PATH)
+
+
+@router.get("/app.apk")
+def download_apk(user=Depends(require_web_user)):
+    """Serve the Android app for sideloading, to signed-in web users only — the APK bakes in
+    this server's URL, and anyone holding it could register devices here.
+
+    :param user: the signed-in web user (injected).
+    :return: the APK file.
+    :raises HTTPException: 404 when no APK has been uploaded to this server.
+    """
+    if not apk_available():
+        raise HTTPException(status_code=404, detail="No app package is hosted on this server")
+    return FileResponse(
+        APK_PATH,
+        media_type="application/vnd.android.package-archive",
+        filename="gpstrack.apk",
+    )
 
 
 @router.get("/login")
@@ -109,7 +143,8 @@ def dashboard(request: Request, user=Depends(require_web_user)):
         for d in devices
     ]
     return templates.TemplateResponse(
-        request, "dashboard.html", {"user": user, "devices": items, "now": time.time()},
+        request, "dashboard.html",
+        {"user": user, "devices": items, "now": time.time(), "apk": apk_available()},
     )
 
 

@@ -102,6 +102,33 @@ class SharePreferences(context: Context) {
     }
 
     /**
+     * Reads the device token minted by the server at sign-in, presented on every sync.
+     *
+     * @return the bearer token, or null while signed out.
+     */
+    fun deviceToken(): String? = preferences.getString(KEY_DEVICE_TOKEN, null)
+
+    /**
+     * Reads the account name this device signed in with, for display only.
+     *
+     * @return the username, or null while signed out.
+     */
+    fun accountName(): String? = preferences.getString(KEY_ACCOUNT_NAME, null)
+
+    /**
+     * Stores (or clears) the server sign-in.
+     *
+     * @param token the bearer token, or null to sign out.
+     * @param accountName the username it belongs to, or null to sign out.
+     */
+    fun setSignIn(token: String?, accountName: String?) {
+        preferences.edit()
+            .putString(KEY_DEVICE_TOKEN, token)
+            .putString(KEY_ACCOUNT_NAME, accountName)
+            .apply()
+    }
+
+    /**
      * Reads whether this device is broadcasting its position.
      *
      * @return true when the broadcast switch is on.
@@ -123,6 +150,8 @@ class SharePreferences(context: Context) {
         const val KEY_DISPLAY_NAME = "display_name"
         const val KEY_SERVER_URL = "server_url"
         const val KEY_BROADCASTING = "broadcasting"
+        const val KEY_DEVICE_TOKEN = "device_token"
+        const val KEY_ACCOUNT_NAME = "account_name"
         const val DEFAULT_DISPLAY_NAME = "My device"
     }
 }

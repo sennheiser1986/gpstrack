@@ -58,4 +58,9 @@
 {% else %}
 <p class="muted">No devices have connected to this server yet.</p>
 {% endfor %}
+
+{% if apk %}
+<p class="muted"><a href="/app.apk">Download the GPS Track Android app</a> to record tracks
+  and broadcast your own position.</p>
+{% endif %}
 {% endblock %}

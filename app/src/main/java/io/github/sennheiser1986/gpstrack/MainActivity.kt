@@ -211,6 +211,9 @@ private fun TrackRecorderRoot(
     val peers by viewModel.peers.collectAsStateWithLifecycle()
     val peerLocations by viewModel.peerLocations.collectAsStateWithLifecycle()
     val followRequests by viewModel.followRequests.collectAsStateWithLifecycle()
+    val accountName by viewModel.accountName.collectAsStateWithLifecycle()
+    val authRequired by viewModel.authRequired.collectAsStateWithLifecycle()
+    val signingIn by viewModel.signingIn.collectAsStateWithLifecycle()
     val webFollowers by viewModel.webFollowers.collectAsStateWithLifecycle()
     val qrPayload by viewModel.qrPayload.collectAsStateWithLifecycle()
     val offlineRegions by viewModel.offlineRegions.collectAsStateWithLifecycle()
@@ -525,6 +528,11 @@ private fun TrackRecorderRoot(
                     },
                     serverUrl = serverUrl,
                     onServerUrlChange = { viewModel.setServerUrl(it) },
+                    accountName = accountName,
+                    authRequired = authRequired,
+                    signingIn = signingIn,
+                    onSignIn = { username, password -> viewModel.serverSignIn(username, password) },
+                    onSignOut = { viewModel.serverSignOut() },
                     peers = peers,
                     peerLocations = peerLocations,
                     nowMillis = nowMillis,

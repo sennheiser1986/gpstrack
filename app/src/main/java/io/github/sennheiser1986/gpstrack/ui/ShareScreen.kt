@@ -63,6 +63,11 @@ import io.github.sennheiser1986.gpstrack.share.ShareCodec
  * @param onAddById invoked with a pasted sharing id or link to add a peer.
  * @param onPeerVisibleChange invoked with a peer id and the new visibility.
  * @param onRemovePeer invoked with a peer id to forget.
+ * @param accountName the server account this device is signed in with, or null.
+ * @param authRequired true when the server rejected the device's token.
+ * @param signingIn true while a sign-in attempt is in flight.
+ * @param onSignIn invoked with a username and password to sign in.
+ * @param onSignOut invoked to forget the sign-in.
  */
 @Composable
 fun ShareScreen(
@@ -74,6 +79,11 @@ fun ShareScreen(
     onBroadcastChange: (Boolean) -> Unit,
     serverUrl: String,
     onServerUrlChange: (String) -> Unit,
+    accountName: String? = null,
+    authRequired: Boolean = false,
+    signingIn: Boolean = false,
+    onSignIn: (String, String) -> Unit = { _, _ -> },
+    onSignOut: () -> Unit = {},
     peers: List<Peer>,
     peerLocations: Map<String, PeerLocation>,
     nowMillis: Long,
@@ -119,6 +129,14 @@ fun ShareScreen(
                 )
             }
         }
+
+        ServerAccountCard(
+            accountName = accountName,
+            authRequired = authRequired,
+            signingIn = signingIn,
+            onSignIn = onSignIn,
+            onSignOut = onSignOut,
+        )
 
         Row(
             Modifier.fillMaxWidth(),
@@ -287,6 +305,84 @@ private fun PeerRow(
         Switch(checked = peer.visibleOnMap, onCheckedChange = onVisibleChange)
         IconButton(onClick = onRemove) {
             Icon(Icons.Filled.Delete, contentDescription = "Remove ${peer.label}")
+        }
+    }
+}
+
+/**
+ * The server-account card: who this device is signed in as, or a username/password form when
+ * signed out (or when the server started refusing the stored token).
+ *
+ * @param accountName the signed-in account, or null.
+ * @param authRequired true when the server rejected the stored token.
+ * @param signingIn true while a sign-in attempt is running.
+ * @param onSignIn invoked with the entered username and password.
+ * @param onSignOut invoked to forget the sign-in.
+ */
+@Composable
+private fun ServerAccountCard(
+    accountName: String?,
+    authRequired: Boolean,
+    signingIn: Boolean,
+    onSignIn: (String, String) -> Unit,
+    onSignOut: () -> Unit,
+) {
+    androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Server account", style = MaterialTheme.typography.titleMedium)
+            if (accountName != null && !authRequired) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Signed in as $accountName", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(onClick = onSignOut) { Text("Sign out") }
+                }
+            } else {
+                Text(
+                    if (authRequired) {
+                        "The server needs you to sign in before sharing works."
+                    } else {
+                        "Sign in with your server account to share and follow locations."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                var username by remember { mutableStateOf(accountName ?: "") }
+                var password by remember { mutableStateOf("") }
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("Username") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password") },
+                    singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                androidx.compose.material3.Button(
+                    onClick = {
+                        onSignIn(username, password)
+                        password = ""
+                    },
+                    enabled = !signingIn && username.isNotBlank() && password.isNotBlank(),
+                ) {
+                    Text(if (signingIn) "Signing in…" else "Sign in")
+                }
+            }
         }
     }
 }

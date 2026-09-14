@@ -49,6 +49,11 @@ sudo a2ensite gpstrack-share && sudo systemctl reload apache2
 sudo certbot --apache -d gpstrack.example.org
 ```
 
+**Hosting the app for download:** drop the built APK at
+`/opt/gpstrack-share/apk/gpstrack.apk` (override with the `GPSTRACK_APK` env var) and the
+login page and dashboard automatically show a "Download the app" link serving it at
+`/app.apk`. Build it with `./gradlew :app:assemblePrimaryRelease -PshareServerUrl=https://your-host`.
+
 Remove with `sudo ./uninstall.sh` (`--purge` also drops the account and the database).
 
 **Scale note:** keep it to one uvicorn process (the default). Positions are per-process memory.

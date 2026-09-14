@@ -22,10 +22,12 @@ Bootstrap the admin account with ``./reset-admin-password.sh``.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import logging
+import secrets
 import time
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 import db
@@ -52,6 +54,80 @@ app.include_router(admin_router)
 app.include_router(web_router)
 
 
+class DeviceLoginRequest(BaseModel):
+    """The body of ``POST /device-login``: a web-user credential plus the device claiming it."""
+
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=200)
+    device_id: str = Field(min_length=1, max_length=128)
+    label: str = Field(default="", max_length=100)
+
+
+def _token_hash(token: str) -> str:
+    """Hash a device token for storage; tokens are high-entropy, so a fast hash is fine.
+
+    :param token: the bearer token.
+    :return: hex SHA-256.
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+@app.post("/device-login")
+def device_login(request: DeviceLoginRequest) -> dict:
+    """Sign a device in with a web-user account and mint its sync token.
+
+    The device row is created (or re-claimed) here — a device that never signed in does not
+    exist to this server, so nothing anonymous can pollute the database. Signing in again
+    rotates the token; the old one stops working.
+
+    :param request: the parsed body.
+    :return: ``{"token": <bearer token for /sync>}``.
+    :raises HTTPException: 401 on a wrong credential or disabled account.
+    """
+    from passwords import verify_password  # local import: avoids a cycle at module load
+
+    user = db.query_one(
+        "SELECT * FROM web_users WHERE username = ?", (request.username.strip(),),
+    )
+    if user is None or user["disabled"] or not verify_password(request.password, user["password_hash"]):
+        logger.info("device-login REFUSED user=%s device=%s", request.username, request.device_id[:12])
+        raise HTTPException(status_code=401, detail="Wrong username or password")
+
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    db.execute(
+        """
+        INSERT INTO devices (id, label, first_seen, last_seen, owner_user_id, token_hash)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            label = excluded.label,
+            last_seen = excluded.last_seen,
+            owner_user_id = excluded.owner_user_id,
+            token_hash = excluded.token_hash
+        """,
+        (request.device_id, request.label, now, now, user["id"], _token_hash(token)),
+    )
+    logger.info("device-login OK user=%s device=%s", request.username, request.device_id[:12])
+    return {"token": token, "username": user["username"]}
+
+
+def _require_device_token(device_id: str, authorization: str | None) -> None:
+    """Reject a sync that does not carry the device's current token.
+
+    :param device_id: the device id claimed in the body.
+    :param authorization: the ``Authorization`` header value.
+    :raises HTTPException: 401 when the token is missing, unknown or stale.
+    """
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Sign in required")
+    row = db.query_one("SELECT token_hash FROM devices WHERE id = ?", (device_id,))
+    if row is None or not row["token_hash"] or row["token_hash"] != _token_hash(token):
+        raise HTTPException(status_code=401, detail="Sign in required")
+
+
 class SyncRequest(BaseModel):
     """The body of ``POST /sync``.
 
@@ -70,20 +146,16 @@ class SyncRequest(BaseModel):
 
 
 def _record_device(device_id: str, label: str, now: float) -> None:
-    """Upsert the ``devices`` row so the admin panel and web dashboard know this device.
+    """Refresh a signed-in device's label and last-seen time. Rows are only ever created by
+    ``/device-login``, so an unauthenticated id can never appear here.
 
     :param device_id: the device's sharing id.
     :param label: its current display name.
     :param now: current unix time.
     """
     db.execute(
-        """
-        INSERT INTO devices (id, label, first_seen, last_seen) VALUES (?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            label = excluded.label,
-            last_seen = excluded.last_seen
-        """,
-        (device_id, label, now, now),
+        "UPDATE devices SET label = ?, last_seen = ? WHERE id = ?",
+        (label, now, device_id),
     )
 
 
@@ -144,12 +216,16 @@ def _approved_followers(device_id: str) -> list[dict]:
 
 
 @app.post("/sync")
-def sync(request: SyncRequest) -> dict:
-    """Relay endpoint, plus device registration and follow-request handling.
+def sync(request: SyncRequest, authorization: str | None = Header(default=None)) -> dict:
+    """Relay endpoint, plus follow-request handling. Requires the device token minted by
+    ``POST /device-login``.
 
     :param request: the parsed body.
+    :param authorization: ``Bearer <device token>``.
     :return: ``{peers, follow_requests, followers}``.
+    :raises HTTPException: 401 when the device is not signed in.
     """
+    _require_device_token(request.id, authorization)
     now = time.time()
     logger.info(
         "sync id=%s broadcasting=%s pos=%s watching=%d decisions=%s",

@@ -140,7 +140,14 @@ class LocationShareService : LifecycleService(), LocationListener {
         if (loopJob?.isActive == true) return
         loopJob = lifecycleScope.launch {
             while (isActive) {
-                runCatching { syncOnce() }
+                val result = runCatching { syncOnce() }
+                if (result.exceptionOrNull() is ShareAuthRequiredException) {
+                    // The server wants a (fresh) sign-in; looping would only hammer 401s.
+                    // The Share tab shows the sign-in card and restarts us on success.
+                    ShareAuthState.reject()
+                    stopEverything()
+                    break
+                }
                 delay(SYNC_INTERVAL_MILLIS)
                 if (!hasWork()) {
                     stopEverything()
@@ -171,8 +178,9 @@ class LocationShareService : LifecycleService(), LocationListener {
             followDecisions = decisions,
         )
         val result = withContext(Dispatchers.IO) {
-            LocationShareClient.sync(preferences.serverUrl(), request)
+            LocationShareClient.sync(preferences.serverUrl(), request, preferences.deviceToken())
         }
+        ShareAuthState.accept()
         PeerDirectory.replaceAll(result.peers)
         FollowRequestDirectory.replaceAll(result.followRequests, result.followers)
         alertNewFollowRequests(result.followRequests)
