@@ -93,7 +93,15 @@ class LocationShareService : LifecycleService(), LocationListener {
             stopEverything()
             return START_NOT_STICKY
         }
-        ensureLocationUpdates()
+        // GPS is only needed to publish our own position: watching peers is pure network
+        // polling, so with the broadcast off the location subscription is dropped and the GPS
+        // radio can sleep.
+        if (preferences.isBroadcasting()) {
+            ensureLocationUpdates()
+        } else {
+            runCatching { locationManager.removeUpdates(this) }
+            lastFix = null
+        }
         ensureLoop()
         if (decisionAction) lifecycleScope.launch { runCatching { syncOnce() } }
         return START_STICKY
