@@ -11,7 +11,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -26,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.sennheiser1986.gpstrack.data.LatLon
@@ -67,6 +73,25 @@ fun MapScreen(
     }
 
     var focusRequest by remember { mutableStateOf<MapFocusRequest?>(null) }
+    val context = LocalContext.current
+
+    /**
+     * Hands a position to whatever navigation app the reader has, via a standard geo: intent.
+     */
+    fun openInNavigationApp(label: String, position: LatLon) {
+        val uri = android.net.Uri.parse(
+            "geo:${position.latitude},${position.longitude}" +
+                "?q=${position.latitude},${position.longitude}(${android.net.Uri.encode(label)})",
+        )
+        runCatching {
+            context.startActivity(
+                android.content.Intent.createChooser(
+                    android.content.Intent(android.content.Intent.ACTION_VIEW, uri),
+                    "Open $label in",
+                ),
+            )
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         TrackMapView(
@@ -109,7 +134,8 @@ fun MapScreen(
                         device = "You",
                         age = "now",
                         visible = null,
-                        onRowClick = { focusRequest = MapFocusRequest(me) },
+                        onCenter = { focusRequest = MapFocusRequest(me) },
+                        onNavigate = { openInNavigationApp("My position", me) },
                         onVisibleChange = null,
                     )
                 }
@@ -125,8 +151,11 @@ fun MapScreen(
                             else -> "no fix yet"
                         },
                         visible = peer.visibleOnMap,
-                        onRowClick = location?.let { loc ->
+                        onCenter = location?.let { loc ->
                             { focusRequest = MapFocusRequest(loc.position) }
+                        },
+                        onNavigate = location?.let { loc ->
+                            { openInNavigationApp(peer.label, loc.position) }
                         },
                         onVisibleChange = { onPeerVisibleChange(peer.id, it) },
                     )
@@ -185,7 +214,8 @@ private fun LegendHeaderCell(text: String, modifier: Modifier = Modifier) {
  * @param device the device's display name.
  * @param age the last-seen text.
  * @param visible the show/hide state, or null for rows without a switch (You).
- * @param onRowClick centres the map on this row's dot, or null when it has no position.
+ * @param onCenter centres the map on this row's dot, or null when it has no position.
+ * @param onNavigate hands the position to a navigation app, or null when it has no position.
  * @param onVisibleChange flips the show/hide switch, or null for rows without one.
  */
 @Composable
@@ -195,14 +225,15 @@ private fun LegendTableRow(
     device: String,
     age: String,
     visible: Boolean?,
-    onRowClick: (() -> Unit)?,
+    onCenter: (() -> Unit)?,
+    onNavigate: (() -> Unit)?,
     onVisibleChange: ((Boolean) -> Unit)?,
 ) {
     val dimmed = visible == false
     Row(
         Modifier
             .fillMaxWidth()
-            .let { if (onRowClick != null) it.clickable(onClick = onRowClick) else it }
+            .let { if (onCenter != null) it.clickable(onClick = onCenter) else it }
             .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -228,6 +259,28 @@ private fun LegendTableRow(
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.weight(0.7f).alpha(if (dimmed) 0.5f else 1f),
         )
+        IconButton(
+            onClick = { onCenter?.invoke() },
+            enabled = onCenter != null,
+            modifier = Modifier.size(34.dp),
+        ) {
+            Icon(
+                Icons.Filled.CenterFocusStrong,
+                contentDescription = "Centre on $device",
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        IconButton(
+            onClick = { onNavigate?.invoke() },
+            enabled = onNavigate != null,
+            modifier = Modifier.size(34.dp),
+        ) {
+            Icon(
+                Icons.Filled.NearMe,
+                contentDescription = "Open $device in a navigation app",
+                modifier = Modifier.size(20.dp),
+            )
+        }
         if (visible != null && onVisibleChange != null) {
             Switch(
                 checked = visible,
