@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
 import db
+import positions
 from auth import current_admin, end_session, require_admin, start_session
 from passwords import hash_password, verify_password
 from templating import templates
@@ -55,7 +56,13 @@ def logout(request: Request):
 def dashboard(request: Request, admin: str = Depends(require_admin)):
     """The admin overview: web users, known devices, follow requests."""
     users = db.query("SELECT * FROM web_users ORDER BY username")
-    devices = db.query("SELECT * FROM devices ORDER BY last_seen DESC")
+    devices = db.query(
+        """
+        SELECT d.*, u.username AS owner
+        FROM devices d LEFT JOIN web_users u ON u.id = d.owner_user_id
+        ORDER BY d.last_seen DESC
+        """,
+    )
     follows = db.query(
         """
         SELECT f.*, u.username AS username
@@ -136,4 +143,18 @@ def revoke_follow(follow_id: int, _admin: str = Depends(require_admin)):
         "UPDATE follows SET status = 'denied', decided_at = ? WHERE id = ?",
         (time.time(), follow_id),
     )
+    return RedirectResponse("/admin", status_code=303)
+
+
+@router.post("/devices/{device_id}/delete")
+def delete_device(device_id: str, _admin: str = Depends(require_admin)):
+    """Remove a stale device: its row, its follows, its live position and its sync token.
+
+    The device is not banned — signing in again from the app recreates it cleanly.
+
+    :param device_id: the device's sharing id.
+    """
+    db.execute("DELETE FROM follows WHERE device_id = ?", (device_id,))
+    db.execute("DELETE FROM devices WHERE id = ?", (device_id,))
+    positions.forget(device_id)
     return RedirectResponse("/admin", status_code=303)

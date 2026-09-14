@@ -10,7 +10,8 @@
   </form>
 </div>
 
-{% if devices | selectattr("status", "equalto", "approved") | list %}
+{% set all_devices = groups | map(attribute="devices") | sum(start=[]) %}
+{% if all_devices | selectattr("status", "equalto", "approved") | list %}
 <div class="card">
   <div class="row" style="justify-content: space-between">
     <div>Everyone you follow, live on one map.</div>
@@ -19,7 +20,9 @@
 </div>
 {% endif %}
 
-{% for d in devices %}
+{% for g in groups %}
+<h2>{{ g.owner }}</h2>
+{% for d in g.devices %}
 <div class="card">
   <div class="row" style="justify-content: space-between">
     <div>
@@ -55,6 +58,7 @@
     </div>
   </div>
 </div>
+{% endfor %}
 {% else %}
 <p class="muted">No devices have connected to this server yet.</p>
 {% endfor %}

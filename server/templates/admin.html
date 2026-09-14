@@ -46,15 +46,22 @@
 
 <h2>Known devices</h2>
 <table>
-  <tr><th>Name</th><th>ID</th><th>Last seen</th></tr>
+  <tr><th>Name</th><th>ID</th><th>Owner</th><th>Last seen</th><th></th></tr>
   {% for d in devices %}
   <tr>
     <td>{{ d.label or d.id[:8] }}</td>
     <td class="muted"><code>{{ d.id[:12] }}…</code></td>
+    <td class="muted">{{ d.owner or '—' }}</td>
     <td class="muted">{{ d.last_seen | ago }}</td>
+    <td>
+      <form method="post" action="/admin/devices/{{ d.id }}/delete" class="inline"
+            onsubmit="return confirm('Remove {{ d.label or d.id[:8] }}? Its follows are removed too; signing in again from the app re-adds it.')">
+        <button class="secondary" type="submit">Remove</button>
+      </form>
+    </td>
   </tr>
   {% else %}
-  <tr><td colspan="3" class="muted">No device has synced yet.</td></tr>
+  <tr><td colspan="5" class="muted">No device has synced yet.</td></tr>
   {% endfor %}
 </table>
 

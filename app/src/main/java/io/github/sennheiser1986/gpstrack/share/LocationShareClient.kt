@@ -37,11 +37,14 @@ data class SyncRequest(
  * @property peers watched peer id to its latest position.
  * @property followRequests web users awaiting this device owner's decision.
  * @property followers web users whose follow is currently approved.
+ * @property followedDevices devices this device's server account follows (id to label), so a
+ *   follow made on the web appears in the app automatically.
  */
 data class SyncResult(
     val peers: Map<String, PeerLocation>,
     val followRequests: List<FollowRequest>,
     val followers: List<FollowRequest>,
+    val followedDevices: List<Pair<String, String>> = emptyList(),
 )
 
 /** Raised when the sharing server cannot be reached or returns something unusable. */
@@ -166,6 +169,7 @@ object LocationShareClient {
                 peers = parsePeers(json.optJSONObject("peers")),
                 followRequests = parseFollowRequests(json.optJSONArray("follow_requests")),
                 followers = parseFollowRequests(json.optJSONArray("followers")),
+                followedDevices = parseFollowedDevices(json.optJSONArray("followed_devices")),
             )
         } catch (error: ShareUnavailableException) {
             throw error
@@ -197,6 +201,21 @@ object LocationShareClient {
             )
         }
         return result
+    }
+
+    /**
+     * Turns the `followed_devices` array into (id, label) pairs.
+     *
+     * @param array the JSON array, or null.
+     * @return the pairs; entries without an id are skipped.
+     */
+    private fun parseFollowedDevices(array: JSONArray?): List<Pair<String, String>> {
+        if (array == null) return emptyList()
+        return (0 until array.length()).mapNotNull { index ->
+            val entry = array.optJSONObject(index) ?: return@mapNotNull null
+            val id = entry.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            id to entry.optString("label")
+        }
     }
 
     /**

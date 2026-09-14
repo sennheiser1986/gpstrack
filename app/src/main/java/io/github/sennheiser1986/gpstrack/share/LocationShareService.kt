@@ -181,6 +181,8 @@ class LocationShareService : LifecycleService(), LocationListener {
             LocationShareClient.sync(preferences.serverUrl(), request, preferences.deviceToken())
         }
         ShareAuthState.accept()
+        // Follows made on the web page under the same account become peers here automatically.
+        peersStore.mergeAccountFollows(result.followedDevices, preferences.instanceId())
         PeerDirectory.replaceAll(result.peers)
         FollowRequestDirectory.replaceAll(result.followRequests, result.followers)
         alertNewFollowRequests(result.followRequests)

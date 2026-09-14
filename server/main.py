@@ -179,6 +179,29 @@ def _apply_follow_decisions(device_id: str, decisions: dict[str, str], now: floa
         )
 
 
+def _account_followed_devices(device_id: str) -> list[dict]:
+    """Devices the syncing device's owner account holds approved follows for.
+
+    These ride back in the sync response so a follow made on the web automatically appears as
+    a peer in the same account's app — no QR scan needed.
+
+    :param device_id: the syncing device's id.
+    :return: ``[{id, label}]``, excluding the device itself.
+    """
+    rows = db.query(
+        """
+        SELECT d.id AS id, d.label AS label
+        FROM devices me
+        JOIN follows f ON f.web_user_id = me.owner_user_id AND f.status = 'approved'
+        JOIN devices d ON d.id = f.device_id
+        WHERE me.id = ? AND d.id != ?
+        ORDER BY d.label
+        """,
+        (device_id, device_id),
+    )
+    return [{"id": r["id"], "label": r["label"]} for r in rows]
+
+
 def _pending_requests(device_id: str) -> list[dict]:
     """Follow requests awaiting this device owner's decision.
 
@@ -256,6 +279,7 @@ def sync(request: SyncRequest, authorization: str | None = Header(default=None))
         "peers": peers,
         "follow_requests": _pending_requests(request.id),
         "followers": _approved_followers(request.id),
+        "followed_devices": _account_followed_devices(request.id),
     }
 
 

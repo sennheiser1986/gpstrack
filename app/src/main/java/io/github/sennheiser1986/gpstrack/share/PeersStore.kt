@@ -29,6 +29,27 @@ class PeersStore(context: Context) {
         context.applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
     /**
+     * Adds any account-followed devices reported by the server that are not saved yet, so a
+     * follow made on the web page shows up in this app without a QR scan. Existing peers keep
+     * their label and visibility.
+     *
+     * @param followed server-reported (id, label) pairs.
+     * @param ownInstanceId this device's own id, which is never added.
+     * @return true when at least one peer was added.
+     */
+    fun mergeAccountFollows(followed: List<Pair<String, String>>, ownInstanceId: String): Boolean {
+        val existing = peers()
+        val known = existing.map { it.id }.toHashSet()
+        val fresh = followed
+            .filter { (id, _) -> id != ownInstanceId && id !in known }
+            .map { (id, label) -> Peer(id = id, label = label.ifBlank { id.take(8) }, visibleOnMap = true) }
+        if (fresh.isEmpty()) return false
+        write(existing + fresh)
+        bumpRevision()
+        return true
+    }
+
+    /**
      * Reads the saved peers.
      *
      * @return the peers in insertion order; empty when none have been scanned.
@@ -115,6 +136,10 @@ class PeersStore(context: Context) {
      *
      * @param peers the list to store.
      */
+    private fun bumpRevision() {
+        revisionFlow.value++
+    }
+
     private fun write(peers: List<Peer>) {
         val array = JSONArray()
         peers.forEach { peer ->
@@ -128,8 +153,16 @@ class PeersStore(context: Context) {
         preferences.edit().putString(KEY_PEERS, array.toString()).apply()
     }
 
-    private companion object {
-        const val PREFERENCES_NAME = "track_recorder_peers"
-        const val KEY_PEERS = "peers"
+    companion object {
+        private const val PREFERENCES_NAME = "track_recorder_peers"
+        private const val KEY_PEERS = "peers"
+
+        private val revisionFlow = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+        /**
+         * Bumped whenever a [PeersStore] instance changes the stored list, so an observer in
+         * another part of the process (the ViewModel) can re-read it.
+         */
+        val revision: kotlinx.coroutines.flow.StateFlow<Int> = revisionFlow
     }
 }

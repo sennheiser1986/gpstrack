@@ -125,7 +125,13 @@ def dashboard(request: Request, user=Depends(require_web_user)):
     if user["must_change_password"]:
         return RedirectResponse("/change-password", status_code=303)
 
-    devices = db.query("SELECT * FROM devices ORDER BY last_seen DESC")
+    devices = db.query(
+        """
+        SELECT d.*, u.username AS owner
+        FROM devices d LEFT JOIN web_users u ON u.id = d.owner_user_id
+        ORDER BY COALESCE(u.username, '~'), d.last_seen DESC
+        """,
+    )
     follow_rows = db.query(
         "SELECT device_id, status FROM follows WHERE web_user_id = ?", (user["id"],),
     )
@@ -136,15 +142,23 @@ def dashboard(request: Request, user=Depends(require_web_user)):
             "id": d["id"],
             "label": d["label"] or d["id"][:8],
             "short_id": d["id"][:8],
+            "owner": d["owner"],
             "last_seen": d["last_seen"],
             "online": positions.is_online(d["id"]),
             "status": follow_status.get(d["id"]),
         }
         for d in devices
     ]
+    # Grouped per owning account, so the list reads "person -> their devices".
+    groups: list[dict] = []
+    for item in items:
+        owner = item["owner"] or "unclaimed"
+        if not groups or groups[-1]["owner"] != owner:
+            groups.append({"owner": owner, "devices": []})
+        groups[-1]["devices"].append(item)
     return templates.TemplateResponse(
         request, "dashboard.html",
-        {"user": user, "devices": items, "now": time.time(), "apk": apk_available()},
+        {"user": user, "groups": groups, "now": time.time(), "apk": apk_available()},
     )
 
 

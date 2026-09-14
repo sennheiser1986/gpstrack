@@ -305,6 +305,12 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
             LocationShareService.sync(getApplication())
         }
 
+        // Re-read the stored peers whenever any PeersStore instance (e.g. the sharing
+        // service merging account follows) changes them.
+        viewModelScope.launch {
+            PeersStore.revision.collect { _peers.value = peersStore.peers() }
+        }
+
         // Adopt the friendly name each peer broadcasts, so a peer added by bare id (paste, or a
         // QR without a name) stops showing as a short id fragment once they come online.
         viewModelScope.launch {
