@@ -75,6 +75,10 @@ def forget(device_id: str) -> None:
 def latest(device_id: str) -> dict[str, float | str] | None:
     """Return a device's latest fresh position, or None.
 
+    ``time`` is when the device last *reported* the position, not when the GPS fix was taken:
+    a stationary phone keeps re-sending its old fix every few seconds, and "last seen" labels
+    should reflect that it is alive rather than how long ago it last moved.
+
     :param device_id: the device id.
     :return: ``{lat, lon, time, label}`` or None when unknown or stale.
     """
@@ -84,7 +88,7 @@ def latest(device_id: str) -> dict[str, float | str] | None:
         entry = _positions.get(device_id)
         if entry is None:
             return None
-        return {"lat": entry["lat"], "lon": entry["lon"], "time": entry["time"], "label": entry["label"]}
+        return {"lat": entry["lat"], "lon": entry["lon"], "time": entry["stored"], "label": entry["label"]}
 
 
 def is_online(device_id: str) -> bool:
