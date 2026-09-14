@@ -61,6 +61,13 @@ class TrackRecorderApp : Application() {
         )
         manager.createNotificationChannel(
             NotificationChannel(
+                NEARBY_CHANNEL_ID,
+                getString(R.string.nearby_channel_name),
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply { description = getString(R.string.nearby_channel_description) },
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
                 FOLLOW_REQUEST_CHANNEL_ID,
                 getString(R.string.follow_request_channel_name),
                 NotificationManager.IMPORTANCE_HIGH,
@@ -80,5 +87,8 @@ class TrackRecorderApp : Application() {
 
         /** Channel for the heads-up "a web user wants to follow you" alert. */
         const val FOLLOW_REQUEST_CHANNEL_ID = "follow_requests"
+
+        /** Channel for the "someone you follow is nearby" alert. */
+        const val NEARBY_CHANNEL_ID = "nearby_peers"
     }
 }

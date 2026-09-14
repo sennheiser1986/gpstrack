@@ -172,8 +172,10 @@ fun ManualScreen(
                 "follow appears on the Map tab with a switch; switch someone off to hide them " +
                 "and stop fetching their position. Positions are fetched from the server's " +
                 "cache only while the app is on screen — watching people keeps nothing " +
-                "running in the background and costs no battery. The Map tab always shows " +
-                "your own position too.",
+                "running in the background and costs no battery. While you are broadcasting, " +
+                "the app also sends one alert when someone you follow comes within about " +
+                "500 m (re-armed once they are farther than 750 m again). The Map tab always " +
+                "shows your own position too.",
         )
         Section(
             "Web followers",

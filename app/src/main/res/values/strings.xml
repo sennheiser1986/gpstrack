@@ -16,6 +16,9 @@
     <string name="follow_request_channel_name">Follow requests</string>
     <string name="follow_request_channel_description">Alerts you when a web user asks to follow your location.</string>
 
+    <string name="nearby_channel_name">Nearby people</string>
+    <string name="nearby_channel_description">Alerts you when someone you follow comes close while you are broadcasting.</string>
+
     <string name="tile_record_label">Record track</string>
     <string name="tile_broadcast_label">Broadcast location</string>
 </resources>

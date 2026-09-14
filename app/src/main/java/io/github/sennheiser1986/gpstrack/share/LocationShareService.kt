@@ -50,6 +50,9 @@ class LocationShareService : LifecycleService(), LocationListener {
     /** Follow-request ids a heads-up notification has already been posted for. */
     private val notifiedFollowIds = mutableSetOf<Long>()
 
+    /** Peers currently inside the proximity-alert radius, so each approach alerts once. */
+    private val nearbyPeerIds = mutableSetOf<String>()
+
     override fun onCreate() {
         super.onCreate()
         preferences = SharePreferences(this)
@@ -192,6 +195,9 @@ class LocationShareService : LifecycleService(), LocationListener {
         peersStore.mergeAccountFollows(result.followedDevices, preferences.instanceId())
         PeerDirectory.replaceAll(result.peers)
         PeerDirectory.mergeOwners(result.watchedOwners)
+        // Only reachable while broadcasting (this service does not run otherwise), which is
+        // exactly when being told "X is nearby" is wanted.
+        checkProximity(position, result.peers)
         FollowRequestDirectory.replaceAll(result.followRequests, result.followers)
         alertNewFollowRequests(result.followRequests)
         if (decisions.isNotEmpty()) {
@@ -254,6 +260,73 @@ class LocationShareService : LifecycleService(), LocationListener {
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setOngoing(true)
             .setContentIntent(openApp)
+            .build()
+    }
+
+    /**
+     * Alerts once when a watched peer comes within [PROXIMITY_ALERT_METERS] of this device,
+     * re-arming only after they leave [PROXIMITY_REARM_METERS] (hysteresis) or go offline.
+     *
+     * @param own this device's position, or null when unknown.
+     * @param peers the watched peers' latest positions from this sync.
+     */
+    private fun checkProximity(own: LatLon?, peers: Map<String, PeerLocation>) {
+        if (own == null) return
+        val unseen = nearbyPeerIds.toMutableSet()
+        peers.forEach { (id, location) ->
+            val meters = io.github.sennheiser1986.gpstrack.data.haversineMeters(
+                own.latitude, own.longitude,
+                location.position.latitude, location.position.longitude,
+            )
+            when {
+                meters <= PROXIMITY_ALERT_METERS -> {
+                    unseen.remove(id)
+                    if (nearbyPeerIds.add(id) && canPostNotifications()) {
+                        val label = location.label?.takeIf { it.isNotBlank() } ?: id.take(8)
+                        runCatching {
+                            NotificationManagerCompat.from(this).notify(
+                                NEARBY_NOTIFICATION_BASE + (id.hashCode() and 0xFF),
+                                buildNearbyNotification(label, meters),
+                            )
+                        }
+                    }
+                }
+                meters >= PROXIMITY_REARM_METERS -> {
+                    unseen.remove(id)
+                    nearbyPeerIds.remove(id)
+                }
+                else -> unseen.remove(id) // inside the hysteresis band: keep current state
+            }
+        }
+        // Peers that stopped reporting re-arm too.
+        unseen.forEach(nearbyPeerIds::remove)
+    }
+
+    /**
+     * Builds the "someone is nearby" alert; tapping it opens the Map tab.
+     *
+     * @param label the peer's display name.
+     * @param meters current distance.
+     * @return the notification.
+     */
+    private fun buildNearbyNotification(label: String, meters: Double): Notification {
+        val openMap = PendingIntent.getActivity(
+            this,
+            9,
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_OPEN_TAB, "MAP")
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val distance = if (meters < 1000) "%.0f m".format(meters) else "%.1f km".format(meters / 1000)
+        return NotificationCompat.Builder(this, TrackRecorderApp.NEARBY_CHANNEL_ID)
+            .setContentTitle("$label is nearby")
+            .setContentText("About $distance away")
+            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(openMap)
             .build()
     }
 
@@ -369,6 +442,15 @@ class LocationShareService : LifecycleService(), LocationListener {
 
         /** Base id for per-follow-request heads-up notifications. */
         private const val FOLLOW_NOTIFICATION_BASE = 4300
+
+        /** A watched peer closer than this triggers the one-shot "nearby" alert. */
+        private const val PROXIMITY_ALERT_METERS = 500.0
+
+        /** The alert re-arms only once the peer is farther away than this again. */
+        private const val PROXIMITY_REARM_METERS = 750.0
+
+        /** Base id for per-peer nearby notifications. */
+        private const val NEARBY_NOTIFICATION_BASE = 4500
 
         /** How often the sync exchange runs. */
         private const val SYNC_INTERVAL_MILLIS = 7_000L
