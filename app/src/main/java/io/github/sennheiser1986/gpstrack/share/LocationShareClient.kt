@@ -39,12 +39,14 @@ data class SyncRequest(
  * @property followers web users whose follow is currently approved.
  * @property followedDevices devices this device's server account follows (id to label), so a
  *   follow made on the web appears in the app automatically.
+ * @property watchedOwners watched peer id to the username owning that device, for the legend.
  */
 data class SyncResult(
     val peers: Map<String, PeerLocation>,
     val followRequests: List<FollowRequest>,
     val followers: List<FollowRequest>,
     val followedDevices: List<Pair<String, String>> = emptyList(),
+    val watchedOwners: Map<String, String> = emptyMap(),
 )
 
 /** Raised when the sharing server cannot be reached or returns something unusable. */
@@ -170,6 +172,7 @@ object LocationShareClient {
                 followRequests = parseFollowRequests(json.optJSONArray("follow_requests")),
                 followers = parseFollowRequests(json.optJSONArray("followers")),
                 followedDevices = parseFollowedDevices(json.optJSONArray("followed_devices")),
+                watchedOwners = parseWatchedOwners(json.optJSONObject("watched_owners")),
             )
         } catch (error: ShareUnavailableException) {
             throw error
@@ -199,6 +202,22 @@ object LocationShareClient {
                 timeMillis = (entry.optDouble("time", 0.0) * 1000).toLong(),
                 label = entry.optString("label").takeIf { it.isNotBlank() },
             )
+        }
+        return result
+    }
+
+    /**
+     * Turns the `watched_owners` object into a peer-id-to-username map.
+     *
+     * @param owners the JSON object, or null.
+     * @return the map; entries with a blank owner are skipped.
+     */
+    private fun parseWatchedOwners(owners: JSONObject?): Map<String, String> {
+        if (owners == null) return emptyMap()
+        val result = mutableMapOf<String, String>()
+        for (id in owners.keys()) {
+            val owner = owners.optString(id)
+            if (owner.isNotBlank()) result[id] = owner
         }
         return result
     }

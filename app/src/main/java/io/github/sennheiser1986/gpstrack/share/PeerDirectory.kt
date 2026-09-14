@@ -29,6 +29,11 @@ object PeerDirectory {
     /** Peer id to that peer's most recent reported position. */
     val locations: StateFlow<Map<String, PeerLocation>> = _locations.asStateFlow()
 
+    private val _owners = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /** Peer id to the server account owning that device, for the Map legend's user column. */
+    val owners: StateFlow<Map<String, String>> = _owners.asStateFlow()
+
     /**
      * Replaces the whole table with the latest sync result.
      *
@@ -36,6 +41,17 @@ object PeerDirectory {
      */
     fun replaceAll(locations: Map<String, PeerLocation>) {
         _locations.value = locations
+    }
+
+    /**
+     * Merges the latest owner information; entries are kept so a peer switched off (and thus no
+     * longer watched) keeps its known owner.
+     *
+     * @param owners peer id to owning username, for the currently watched peers.
+     */
+    fun mergeOwners(owners: Map<String, String>) {
+        if (owners.isEmpty()) return
+        _owners.value = _owners.value + owners
     }
 
     /** Forgets every peer position, e.g. when sharing is switched off. */

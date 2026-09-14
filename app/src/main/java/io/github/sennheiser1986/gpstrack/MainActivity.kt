@@ -224,6 +224,7 @@ private fun TrackRecorderRoot(
     val serverUrl by viewModel.serverUrl.collectAsStateWithLifecycle()
     val peers by viewModel.peers.collectAsStateWithLifecycle()
     val peerLocations by viewModel.peerLocations.collectAsStateWithLifecycle()
+    val peerOwners by viewModel.peerOwners.collectAsStateWithLifecycle()
     val followRequests by viewModel.followRequests.collectAsStateWithLifecycle()
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
     val authRequired by viewModel.authRequired.collectAsStateWithLifecycle()
@@ -523,9 +524,11 @@ private fun TrackRecorderRoot(
 
                 AppTab.MAP -> MapScreen(
                     me = currentLocation,
-                    visiblePeers = peers.filter { it.visibleOnMap },
+                    peers = peers,
                     peerLocations = peerLocations,
+                    peerOwners = peerOwners,
                     nowMillis = nowMillis,
+                    onPeerVisibleChange = { id, visible -> viewModel.setPeerVisible(id, visible) },
                     offlineMapVersion = offlineMapVersion,
                 )
 

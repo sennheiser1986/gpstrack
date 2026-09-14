@@ -281,11 +281,26 @@ def sync(request: SyncRequest, authorization: str | None = Header(default=None))
         if entry is not None:
             peers[peer_id] = entry
 
+    # Owning accounts of the watched ids, for the app's legend table.
+    watched_owners: dict[str, str] = {}
+    if request.watching:
+        placeholders = ",".join("?" * len(request.watching))
+        rows = db.query(
+            f"""
+            SELECT d.id AS id, u.username AS owner
+            FROM devices d JOIN web_users u ON u.id = d.owner_user_id
+            WHERE d.id IN ({placeholders})
+            """,
+            tuple(request.watching),
+        )
+        watched_owners = {r["id"]: r["owner"] for r in rows}
+
     return {
         "peers": peers,
         "follow_requests": _pending_requests(request.id),
         "followers": _approved_followers(request.id),
         "followed_devices": _account_followed_devices(request.id),
+        "watched_owners": watched_owners,
     }
 
 

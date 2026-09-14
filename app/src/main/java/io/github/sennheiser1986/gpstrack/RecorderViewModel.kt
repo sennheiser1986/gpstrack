@@ -171,6 +171,9 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     /** Peer id to that peer's latest reported position. */
     val peerLocations = PeerDirectory.locations
 
+    /** Peer id to the server account owning that device. */
+    val peerOwners = PeerDirectory.owners
+
     /** Web users awaiting this device owner's allow/deny decision. */
     val followRequests = FollowRequestDirectory.pending
 
