@@ -88,6 +88,20 @@ private fun requestBatteryExemption(context: android.content.Context) {
     }
 }
 
+/**
+ * Reports whether "Allow all the time" location access is held. Below Android 10 the concept
+ * does not exist and foreground permission suffices.
+ *
+ * @param context any context.
+ * @return true when background location is granted (or not a thing on this OS).
+ */
+private fun hasBackgroundLocation(context: android.content.Context): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+
 /** The tabs the app is divided into. */
 private enum class AppTab(
     /** Wording shown under the tab icon. */
@@ -403,11 +417,13 @@ private fun TrackRecorderRoot(
     // Whether the app is excluded from battery optimisation; refreshed on every resume so
     // returning from the system dialog updates the Manual tab card.
     var batteryExempt by remember { mutableStateOf(isBatteryExempt(context)) }
+    var backgroundLocationGranted by remember { mutableStateOf(hasBackgroundLocation(context)) }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 batteryExempt = isBatteryExempt(context)
+                backgroundLocationGranted = hasBackgroundLocation(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -568,6 +584,15 @@ private fun TrackRecorderRoot(
                     onDeleteRegion = { viewModel.deleteRegion(it) },
                     batteryExempt = batteryExempt,
                     onRequestBatteryExemption = { requestBatteryExemption(context) },
+                    backgroundLocationGranted = backgroundLocationGranted,
+                    onRequestBackgroundLocation = {
+                        // On Android 11+ this lands directly on the app's location-permission
+                        // screen, where "Allow all the time" can be chosen; on 10 it shows the
+                        // dialog with that option.
+                        backgroundPermissionLauncher.launch(
+                            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                        )
+                    },
                     onBackup = { viewModel.requestBackup() },
                     onRestore = { restoreBackupLauncher.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) },
                 )

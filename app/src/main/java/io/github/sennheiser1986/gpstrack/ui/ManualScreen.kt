@@ -61,6 +61,8 @@ import io.github.sennheiser1986.gpstrack.map.OfflineRegion
  * @param onDeleteRegion delete one installed region.
  * @param batteryExempt whether the app is already excluded from battery optimisation.
  * @param onRequestBatteryExemption open the system dialog asking for the exclusion.
+ * @param backgroundLocationGranted whether "Allow all the time" location access is held.
+ * @param onRequestBackgroundLocation open the system screen where it can be granted.
  * @param onBackup export every track to a single backup file.
  * @param onRestore pick a backup file and import the tracks it holds.
  */
@@ -76,6 +78,8 @@ fun ManualScreen(
     onDeleteRegion: (String) -> Unit = {},
     batteryExempt: Boolean = true,
     onRequestBatteryExemption: () -> Unit = {},
+    backgroundLocationGranted: Boolean = true,
+    onRequestBackgroundLocation: () -> Unit = {},
     onBackup: () -> Unit = {},
     onRestore: () -> Unit = {},
 ) {
@@ -88,6 +92,10 @@ fun ManualScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        if (!backgroundLocationGranted) {
+            BackgroundLocationCard(onRequestBackgroundLocation)
+        }
+
         if (!batteryExempt) {
             BatteryCard(onRequestBatteryExemption)
         }
@@ -194,6 +202,36 @@ fun ManualScreen(
                 onCloseCatalog()
             },
         )
+    }
+}
+
+/**
+ * A warning card shown while "Allow all the time" location access is missing, without which
+ * recording and broadcasting stop when the app leaves the screen.
+ *
+ * @param onRequest open the system screen where the grant can be made.
+ */
+@Composable
+private fun BackgroundLocationCard(onRequest: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                "Location access",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "Location is not set to \"Allow all the time\", so recording and broadcasting " +
+                    "stop as soon as the app is in the background or the screen is off. On the " +
+                    "next screen choose Permissions \u2192 Location \u2192 \"Allow all the " +
+                    "time\".",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(onClick = onRequest) { Text("Open location settings") }
+        }
     }
 }
 
