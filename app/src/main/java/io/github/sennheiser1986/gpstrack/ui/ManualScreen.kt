@@ -255,7 +255,9 @@ private fun BatteryCard(onRequest: () -> Unit) {
             )
             Text(
                 "This device may stop long recordings while the screen is off. Excluding the " +
-                    "app from battery optimisation keeps recording and sharing running.",
+                    "app from battery optimisation keeps recording and sharing running. If the " +
+                    "app's settings page opens instead of a dialog, choose Battery \u2192 " +
+                    "Unrestricted.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Button(onClick = onRequest) { Text("Exclude from optimisation") }

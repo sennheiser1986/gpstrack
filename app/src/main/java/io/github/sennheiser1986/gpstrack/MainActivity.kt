@@ -69,23 +69,69 @@ private fun isBatteryExempt(context: android.content.Context): Boolean {
 }
 
 /**
- * Opens the system dialog asking to exclude the app from battery optimisation.
+ * Launches the first intent in [intents] that opens without throwing, or toasts when none
+ * does — a button must never silently do nothing. (Resolution is not pre-checked: package
+ * visibility filtering makes ``resolveActivity`` unreliable for Settings screens.)
+ *
+ * @param context an activity context.
+ * @param intents candidate intents, most specific first.
+ */
+private fun startFirstThatOpens(context: android.content.Context, vararg intents: Intent) {
+    for (intent in intents) {
+        if (runCatching { context.startActivity(intent) }.isSuccess) return
+    }
+    Toast.makeText(context, "Could not open the settings screen on this device", Toast.LENGTH_LONG).show()
+}
+
+/**
+ * Opens the screen for excluding the app from battery optimisation. Samsung's One UI silently
+ * drops the standard direct dialog, and its real control lives on the app's own settings page
+ * (Battery → Unrestricted), so Samsung goes straight there; everyone else gets the system
+ * dialog with the list screen and the app page as fallbacks.
  *
  * @param context an activity context.
  */
 private fun requestBatteryExemption(context: android.content.Context) {
-    val intent = Intent(
-        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+    val appDetails = Intent(
+        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
         Uri.parse("package:${context.packageName}"),
     )
-    runCatching { context.startActivity(intent) }.onFailure {
-        // Some builds hide the direct dialog; fall back to the list screen.
-        runCatching {
-            context.startActivity(
-                Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
-            )
-        }
+    if (Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
+        startFirstThatOpens(
+            context,
+            appDetails,
+            Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+        )
+        return
     }
+    startFirstThatOpens(
+        context,
+        Intent(
+            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            Uri.parse("package:${context.packageName}"),
+        ),
+        Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+        appDetails,
+    )
+}
+
+/**
+ * Opens the app's system settings page, from which Permissions → Location → "Allow all the
+ * time" is reachable. A permission *request* is useless here: once background location has
+ * been denied (or "While using the app" chosen), Android turns further requests into silent
+ * no-ops, so the settings page is the only reliable route.
+ *
+ * @param context an activity context.
+ */
+private fun openAppSettings(context: android.content.Context) {
+    startFirstThatOpens(
+        context,
+        Intent(
+            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:${context.packageName}"),
+        ),
+        Intent(android.provider.Settings.ACTION_SETTINGS),
+    )
 }
 
 /**
@@ -588,14 +634,7 @@ private fun TrackRecorderRoot(
                     batteryExempt = batteryExempt,
                     onRequestBatteryExemption = { requestBatteryExemption(context) },
                     backgroundLocationGranted = backgroundLocationGranted,
-                    onRequestBackgroundLocation = {
-                        // On Android 11+ this lands directly on the app's location-permission
-                        // screen, where "Allow all the time" can be chosen; on 10 it shows the
-                        // dialog with that option.
-                        backgroundPermissionLauncher.launch(
-                            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
-                        )
-                    },
+                    onRequestBackgroundLocation = { openAppSettings(context) },
                     onBackup = { viewModel.requestBackup() },
                     onRestore = { restoreBackupLauncher.launch(arrayOf("application/json", "application/octet-stream", "text/plain")) },
                 )
