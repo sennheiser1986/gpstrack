@@ -206,16 +206,21 @@ def _approved_follow(user_id: int, device_id: str):
 
 
 def _approved_devices(user_id: int):
-    """Every device the user holds an approved follow for, with its stored label.
+    """Every device the user may watch: their own devices (owning is following — no request
+    needed for your own phone) plus every device they hold an approved follow for.
 
     :param user_id: the web user's id.
     :return: rows of (device id, label), ordered by label.
     """
     return db.query(
-        "SELECT d.id, d.label FROM follows f JOIN devices d ON d.id = f.device_id "
-        "WHERE f.web_user_id = ? AND f.status = 'approved' "
-        "ORDER BY COALESCE(NULLIF(d.label, ''), d.id)",
-        (user_id,),
+        """
+        SELECT d.id, d.label FROM devices d WHERE d.owner_user_id = ?
+        UNION
+        SELECT d.id, d.label FROM follows f JOIN devices d ON d.id = f.device_id
+        WHERE f.web_user_id = ? AND f.status = 'approved'
+        ORDER BY 2
+        """,
+        (user_id, user_id),
     )
 
 

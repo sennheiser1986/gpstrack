@@ -11,7 +11,8 @@
 </div>
 
 {% set all_devices = groups | map(attribute="devices") | sum(start=[]) %}
-{% if all_devices | selectattr("status", "equalto", "approved") | list %}
+{% if all_devices | selectattr("status", "equalto", "approved") | list
+      or all_devices | selectattr("owner", "equalto", user.username) | list %}
 <div class="card">
   <div class="row" style="justify-content: space-between">
     <div>Everyone you follow, live on one map.</div>
@@ -31,7 +32,10 @@
       <div class="muted"><code>{{ d.short_id }}…</code></div>
     </div>
     <div class="row">
-      {% if d.status == 'approved' %}
+      {% if d.owner == user.username %}
+        <span class="pill online">your device</span>
+        <a href="/map"><button type="button">Open map</button></a>
+      {% elif d.status == 'approved' %}
         <a href="/map"><button type="button">Open map</button></a>
         <form method="post" action="/unfollow" class="inline">
           <input type="hidden" name="device_id" value="{{ d.id }}">
