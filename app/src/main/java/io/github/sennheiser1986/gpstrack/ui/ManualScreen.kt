@@ -170,7 +170,10 @@ fun ManualScreen(
                 "code; \"Image\" reads a QR code out of a saved picture; or paste their sharing " +
                 "ID (or a gpstrack:// link) into the field and press +. Each person you " +
                 "follow appears on the Map tab with a switch; switch someone off to hide them " +
-                "and stop fetching their position. The Map tab always shows your own position too.",
+                "and stop fetching their position. Positions are fetched from the server's " +
+                "cache only while the app is on screen — watching people keeps nothing " +
+                "running in the background and costs no battery. The Map tab always shows " +
+                "your own position too.",
         )
         Section(
             "Web followers",

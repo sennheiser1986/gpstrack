@@ -108,15 +108,14 @@ class LocationShareService : LifecycleService(), LocationListener {
     }
 
     /**
-     * Reports whether the service currently has a reason to run.
+     * Reports whether the service currently has a reason to run. Watching peers is not one:
+     * the server caches every broadcaster's last position, and the app fetches it in the
+     * foreground while the Map is actually being looked at.
      *
-     * @return true when broadcasting is on, at least one peer is visible, or a web follow
-     *   decision still has to be delivered.
+     * @return true when broadcasting is on or a web follow decision still has to be delivered.
      */
     private fun hasWork(): Boolean =
-        preferences.isBroadcasting() ||
-            peersStore.watchedIds().isNotEmpty() ||
-            FollowRequestDirectory.hasUndeliveredDecisions()
+        preferences.isBroadcasting() || FollowRequestDirectory.hasUndeliveredDecisions()
 
     /**
      * Subscribes to coarse location updates once, so the sharing loop always has a recent fix
@@ -248,11 +247,7 @@ class LocationShareService : LifecycleService(), LocationListener {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val text = if (preferences.isBroadcasting()) {
-            "Sharing your location"
-        } else {
-            "Watching ${peersStore.watchedIds().size} peer(s)"
-        }
+        val text = "Sharing your location"
         return NotificationCompat.Builder(this, TrackRecorderApp.SHARING_CHANNEL_ID)
             .setContentTitle(getString(R.string.sharing_channel_name))
             .setContentText(text)

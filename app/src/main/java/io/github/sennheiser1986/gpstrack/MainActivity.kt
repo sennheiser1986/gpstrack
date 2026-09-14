@@ -468,9 +468,14 @@ private fun TrackRecorderRoot(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                batteryExempt = isBatteryExempt(context)
-                backgroundLocationGranted = hasBackgroundLocation(context)
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
+                    batteryExempt = isBatteryExempt(context)
+                    backgroundLocationGranted = hasBackgroundLocation(context)
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_START -> viewModel.setAppForeground(true)
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> viewModel.setAppForeground(false)
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

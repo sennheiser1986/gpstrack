@@ -148,6 +148,9 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     /** True when the server rejected the device's token and a (re-)sign-in is needed. */
     val authRequired = io.github.sennheiser1986.gpstrack.share.ShareAuthState.authRequired
 
+    // Declared before the init block: the foreground poll loop starts eagerly and reads it.
+    private val _appForeground = MutableStateFlow(false)
+
     private val _signingIn = MutableStateFlow(false)
 
     /** True while a server sign-in attempt is running. */
@@ -302,10 +305,19 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
             viewModelScope.launch { repository.reconcileOpenTracks() }
         }
 
-        // If sharing was left on (broadcast, or at least one visible peer), make sure the
-        // service is running again after a process restart. Nothing to do otherwise.
-        if (_broadcasting.value || peersStore.watchedIds().isNotEmpty()) {
+        // If the broadcast was left on, make sure the service is running again after a
+        // process restart. Watching alone needs no service — the foreground loop handles it.
+        if (_broadcasting.value) {
             LocationShareService.sync(getApplication())
+        }
+
+        // Foreground watch loop: while the interface is on screen and the broadcast service
+        // is not running, refresh the watched peers' cached positions every few seconds.
+        viewModelScope.launch {
+            while (true) {
+                pollPeersOnce()
+                kotlinx.coroutines.delay(7_000)
+            }
         }
 
         // Re-read the stored peers whenever any PeersStore instance (e.g. the sharing
@@ -665,15 +677,74 @@ class RecorderViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * Starts, refreshes or stops [LocationShareService] to match the current settings: it runs
-     * while broadcasting is on or at least one peer is visible, and is stopped otherwise.
+     * Starts, refreshes or stops [LocationShareService] to match the current settings: the
+     * background service exists only to broadcast. Watching peers is served by the foreground
+     * poll below.
      */
     private fun refreshSharingService() {
-        val shouldRun = _broadcasting.value || peersStore.watchedIds().isNotEmpty()
-        if (shouldRun) {
+        if (_broadcasting.value) {
             LocationShareService.sync(getApplication())
         } else {
             LocationShareService.stop(getApplication())
         }
+        pollPeersSoon()
+    }
+
+    /**
+     * Tells the view model whether the interface is on screen; peer positions are only fetched
+     * while it is.
+     *
+     * @param foreground true between the activity's start and stop.
+     */
+    fun setAppForeground(foreground: Boolean) {
+        _appForeground.value = foreground
+        if (foreground) pollPeersSoon()
+    }
+
+    /**
+     * Fetches the watched peers' cached positions from the server once. Used only while the
+     * app is visible and not broadcasting — while broadcasting, the background service's own
+     * sync already carries the same data.
+     */
+    private suspend fun pollPeersOnce() {
+        if (!_appForeground.value || _broadcasting.value) return
+        val watched = peersStore.watchedIds()
+        val decisions = FollowRequestDirectory.snapshotDecisions()
+        if (watched.isEmpty() && decisions.isEmpty()) return
+        val result = runCatching {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                io.github.sennheiser1986.gpstrack.share.LocationShareClient.sync(
+                    sharePreferences.serverUrl(),
+                    io.github.sennheiser1986.gpstrack.share.SyncRequest(
+                        instanceId = instanceId,
+                        label = sharePreferences.displayName(),
+                        broadcasting = false,
+                        position = null,
+                        timeMillis = null,
+                        watching = watched,
+                        followDecisions = decisions,
+                    ),
+                    sharePreferences.deviceToken(),
+                )
+            }
+        }.getOrElse { error ->
+            if (error is io.github.sennheiser1986.gpstrack.share.ShareAuthRequiredException) {
+                io.github.sennheiser1986.gpstrack.share.ShareAuthState.reject()
+            }
+            return
+        }
+        io.github.sennheiser1986.gpstrack.share.ShareAuthState.accept()
+        PeerDirectory.replaceAll(result.peers)
+        PeerDirectory.mergeOwners(result.watchedOwners)
+        peersStore.mergeAccountFollows(result.followedDevices, instanceId)
+        FollowRequestDirectory.replaceAll(result.followRequests, result.followers)
+        if (decisions.isNotEmpty()) {
+            FollowRequestDirectory.acknowledge(decisions.keys.mapNotNull { it.toLongOrNull() })
+        }
+    }
+
+    /** Kicks one immediate foreground poll (peer toggled, tab opened, app resumed). */
+    private fun pollPeersSoon() {
+        viewModelScope.launch { pollPeersOnce() }
     }
 }
