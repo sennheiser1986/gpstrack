@@ -16,15 +16,20 @@
             padding: .5rem 1rem .8rem; }
   #legend h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em;
                opacity: .6; margin: .3rem 0 .4rem; }
-  .legend-row { display: flex; align-items: center; gap: .6rem; padding: .25rem 0; }
-  .legend-row .dot { width: 18px; height: 18px; border-radius: 50%; flex: none;
-                     display: flex; align-items: center; justify-content: center; }
-  .legend-row .dot::after { content: ""; width: 7px; height: 7px; border-radius: 50%;
-                            background: var(--core); border: 2px solid #fff; }
-  .legend-row .name { flex: 1 1 auto; }
-  .legend-row .age { font-size: .85rem; opacity: .7; }
-  .legend-row input[type=checkbox] { width: 1.1rem; height: 1.1rem; accent-color: #1e7a46; }
-  .legend-row.hidden-device .name, .legend-row.hidden-device .age { opacity: .4; }
+  #legend table { width: 100%; border-collapse: collapse; }
+  #legend th { text-align: left; font-size: .75rem; text-transform: uppercase;
+               letter-spacing: .04em; opacity: .6; padding: .25rem .5rem; }
+  #legend td { padding: .3rem .5rem; border-top: 1px solid #8883; vertical-align: middle; }
+  #legend .dot { width: 18px; height: 18px; border-radius: 50%;
+                 display: flex; align-items: center; justify-content: center; }
+  #legend .dot::after { content: ""; width: 7px; height: 7px; border-radius: 50%;
+                        background: var(--core); border: 2px solid #fff; }
+  #legend .age { font-size: .85rem; opacity: .7; white-space: nowrap; }
+  #legend input[type=checkbox] { width: 1.1rem; height: 1.1rem; accent-color: #1e7a46; }
+  #legend tr.hidden-device td { opacity: .45; }
+  #legend tr.hidden-device td:last-child { opacity: 1; }
+  #legend button.centre { padding: .15rem .6rem; }
+  #legend button.centre:disabled { opacity: .4; cursor: default; }
   #status { font-size: .85rem; opacity: .7; }
   .device-marker { background: transparent; border: none; }
   .device-marker .outer { width: 22px; height: 22px; border-radius: 50%;
@@ -41,7 +46,10 @@
   <div id="map"></div>
   <div id="legend">
     <h2>Legend</h2>
-    <div id="legend-rows"></div>
+    <table>
+      <thead><tr><th></th><th>User</th><th>Device</th><th>Last updated</th><th></th><th>Show</th></tr></thead>
+      <tbody id="legend-rows"></tbody>
+    </table>
   </div>
 </div>
 <script>
@@ -99,12 +107,20 @@
     const color = deviceColor(index);
     device.color = color;
 
-    const row = document.createElement('label');
-    row.className = 'legend-row' + (hidden.has(device.id) ? ' hidden-device' : '');
+    const row = document.createElement('tr');
+    row.className = hidden.has(device.id) ? 'hidden-device' : '';
     row.innerHTML =
-      `<span class="dot" style="background:${color}40; --core:${color}"></span>` +
-      `<span class="name"></span><span class="age">no fix yet</span>`;
+      `<td><span class="dot" style="background:${color}40; --core:${color}"></span></td>` +
+      `<td class="owner"></td><td class="name"></td><td class="age">no fix yet</td>` +
+      `<td><button type="button" class="centre" disabled>Centre</button></td><td></td>`;
+    row.querySelector('.owner').textContent = device.owner;
     row.querySelector('.name').textContent = device.label;
+
+    const centre = row.querySelector('.centre');
+    centre.addEventListener('click', () => {
+      const marker = markers.get(device.id);
+      if (marker) map.setView(marker.getLatLng(), Math.max(map.getZoom(), 14));
+    });
 
     const toggle = document.createElement('input');
     toggle.type = 'checkbox';
@@ -118,15 +134,15 @@
         if (toggle.checked) marker.addTo(map); else marker.remove();
       }
     });
-    row.appendChild(toggle);
+    row.lastElementChild.appendChild(toggle);
 
     legendRows.appendChild(row);
-    rows.set(device.id, { row, age: row.querySelector('.age') });
+    rows.set(device.id, { row, age: row.querySelector('.age'), centre });
   });
 
   if (devices.length === 0) {
-    legendRows.innerHTML = '<p class="muted">You are not approved to follow any device yet. ' +
-      'Request follows from the <a href="/">device list</a>.</p>';
+    legendRows.innerHTML = '<tr><td colspan="6" class="muted">You are not approved to follow ' +
+      'any device yet. Request follows from the <a href="/">device list</a>.</td></tr>';
     status.textContent = '';
   }
 
@@ -153,12 +169,14 @@
 
         if (p.lat == null) {
           ui.age.textContent = 'offline';
+          ui.centre.disabled = true;
           const marker = markers.get(p.id);
           if (marker) { marker.remove(); markers.delete(p.id); }
           return;
         }
 
         ui.age.textContent = formatAge(Math.max(0, Math.round(now - p.time)));
+        ui.centre.disabled = false;
         let marker = markers.get(p.id);
         if (!marker) {
           marker = L.marker([p.lat, p.lon], { icon: markerIcon(device.color) })

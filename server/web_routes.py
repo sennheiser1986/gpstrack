@@ -214,9 +214,14 @@ def _approved_devices(user_id: int):
     """
     return db.query(
         """
-        SELECT d.id, d.label FROM devices d WHERE d.owner_user_id = ?
+        SELECT d.id, d.label, u.username AS owner
+        FROM devices d LEFT JOIN web_users u ON u.id = d.owner_user_id
+        WHERE d.owner_user_id = ?
         UNION
-        SELECT d.id, d.label FROM follows f JOIN devices d ON d.id = f.device_id
+        SELECT d.id, d.label, u.username AS owner
+        FROM follows f
+        JOIN devices d ON d.id = f.device_id
+        LEFT JOIN web_users u ON u.id = d.owner_user_id
         WHERE f.web_user_id = ? AND f.status = 'approved'
         ORDER BY 2
         """,
@@ -228,7 +233,7 @@ def _approved_devices(user_id: int):
 def combined_map_page(request: Request, user=Depends(require_web_user)):
     """One live map with every device the user is approved to follow."""
     devices = [
-        {"id": d["id"], "label": d["label"] or d["id"][:8]}
+        {"id": d["id"], "label": d["label"] or d["id"][:8], "owner": d["owner"] or "—"}
         for d in _approved_devices(user["id"])
     ]
     return templates.TemplateResponse(request, "map.html", {"devices": devices})
